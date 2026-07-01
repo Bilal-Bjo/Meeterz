@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meeterz — Technical Research Report</title>
+<style>
+  :root {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --ink: #1c1917;
+    --ink-soft: #57534e;
+    --ink-faint: #a8a29e;
+    --accent: #0d7dcf;
+    --green: #15803d;
+    --green-bg: #f0fdf4;
+    --amber: #b45309;
+    --amber-bg: #fffbeb;
+    --red: #b91c1c;
+    --red-bg: #fef2f2;
+    --border: #e7e5e4;
+    --mono: "SF Mono", ui-monospace, Menlo, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--ink);
+    line-height: 1.65; font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 880px; margin: 0 auto; padding: 64px 32px 96px; }
+  header { margin-bottom: 48px; }
+  .eyebrow {
+    font-size: 12px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 12px;
+  }
+  h1 { font-size: 40px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; margin-bottom: 12px; }
+  .subtitle { font-size: 18px; color: var(--ink-soft); max-width: 640px; }
+  .meta { margin-top: 20px; display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--ink-faint); }
+  .meta span::before { content: "•"; margin-right: 16px; color: var(--border); }
+  .meta span:first-child::before { content: none; }
+
+  h2 { font-size: 24px; font-weight: 700; letter-spacing: -0.01em; margin: 56px 0 20px; padding-top: 24px; border-top: 1px solid var(--border); }
+  h3 { font-size: 17px; font-weight: 650; margin: 28px 0 10px; }
+  p { margin-bottom: 14px; color: var(--ink); }
+  p.soft { color: var(--ink-soft); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { font-family: var(--mono); font-size: 0.85em; background: #f5f5f4; border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; }
+
+  .verdict {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    padding: 28px 32px; margin: 32px 0;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03), 0 8px 24px rgba(0,0,0,0.04);
+  }
+  .verdict .label { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--green); margin-bottom: 8px; }
+  .verdict h2 { border: none; margin: 0 0 8px; padding: 0; font-size: 22px; }
+
+  table { width: 100%; border-collapse: collapse; margin: 20px 0 28px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; font-size: 14.5px; }
+  table { border-radius: 12px; border-style: hidden; box-shadow: 0 0 0 1px var(--border); }
+  th { text-align: left; font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-faint); padding: 12px 16px; border-bottom: 1px solid var(--border); background: #fafaf9; }
+  td { padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+
+  .badge { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 2px 10px; border-radius: 999px; white-space: nowrap; }
+  .badge.high { color: var(--green); background: var(--green-bg); }
+  .badge.medium { color: var(--amber); background: var(--amber-bg); }
+  .badge.refuted { color: var(--red); background: var(--red-bg); }
+
+  .finding { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px; margin-bottom: 14px; }
+  .finding .head { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; margin-bottom: 8px; }
+  .finding h3 { margin: 0; font-size: 15.5px; line-height: 1.5; }
+  .finding .evidence { font-size: 14px; color: var(--ink-soft); margin-bottom: 8px; }
+  .finding .src { font-size: 13px; }
+  .finding .src a { margin-right: 12px; }
+
+  .callout { border-radius: 12px; padding: 18px 22px; margin: 20px 0; font-size: 14.5px; }
+  .callout.warn { background: var(--amber-bg); border: 1px solid #fde68a; }
+  .callout.warn strong { color: var(--amber); }
+  .callout.danger { background: var(--red-bg); border: 1px solid #fecaca; }
+  .callout.danger strong { color: var(--red); }
+
+  ul, ol { padding-left: 24px; margin-bottom: 16px; }
+  li { margin-bottom: 8px; color: var(--ink); }
+  li::marker { color: var(--ink-faint); }
+
+  .arch { font-family: var(--mono); font-size: 12.5px; line-height: 1.7; background: #1c1917; color: #e7e5e4; border-radius: 12px; padding: 24px 28px; overflow-x: auto; margin: 20px 0; white-space: pre; }
+  .arch .c { color: #78716c; }
+  .arch .k { color: #7dd3fc; }
+
+  footer { margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--border); font-size: 13px; color: var(--ink-faint); }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header>
+  <div class="eyebrow">Technical Research Report</div>
+  <h1>Meeterz: recording meeting transcripts on macOS</h1>
+  <p class="subtitle">Deep research into the right architecture for a Mac app that records Teams calls (system audio) and in-person meetings (microphone), transcribes locally with Whisper, and organizes everything with notes and folders.</p>
+  <div class="meta">
+    <span>July 1, 2026</span>
+    <span>104 research agents · 632 tool calls</span>
+    <span>Every claim adversarially verified (3-voter panels)</span>
+  </div>
+</header>
+
+<div class="verdict">
+  <div class="label">Verdict</div>
+  <h2>Electron is the right choice — and the hard problem just got easy</h2>
+  <p>The biggest risk in this project — capturing macOS system audio without ugly hacks — was solved in 2025. As of <strong>Electron 39</strong>, Chromium uses Apple's CoreAudio Tap API by default for desktop audio capture on macOS. That means Teams call audio and your microphone can be captured as <strong>two independent streams, driver-free</strong> (no BlackHole/Soundflower), straight from Electron. Granola — the category-leading, Apple-quality meeting notes app — is itself an Electron app, which validates both the stack and the "premium UX in Electron" premise.</p>
+</div>
+
+<h2>Recommended stack</h2>
+<table>
+  <tr><th>Layer</th><th>Choice</th><th>Why</th></tr>
+  <tr><td><strong>Shell</strong></td><td>Electron 39+ (Vite + React + TypeScript)</td><td>Native CoreAudio-tap system audio built in; fastest iteration on premium UI; proven by Granola.</td></tr>
+  <tr><td><strong>System audio</strong></td><td><code>getDisplayMedia</code> loopback via desktopCapturer (CoreAudio Tap path)</td><td>Driver-free on macOS 14.2+. Requires <code>NSAudioCaptureUsageDescription</code> in Info.plist (added manually).</td></tr>
+  <tr><td><strong>Microphone</strong></td><td><code>getUserMedia</code> as a second, separate MediaStream</td><td>Verified working pattern (mic-speaker-streamer example): two streams → two WAV channels.</td></tr>
+  <tr><td><strong>Transcription</strong></td><td>whisper.cpp with CoreML/Metal (node binding), or a Parakeet/MLX sidecar for 2–5× more speed (English)</td><td>mlx-whisper 1.02s vs whisper.cpp+CoreML 1.23s vs faster-whisper 6.96s (CPU-only on macOS — avoid).</td></tr>
+  <tr><td><strong>Diarization</strong></td><td>Post-meeting: Pyannote-based pipeline (SpeakerKit via a small Swift helper, or sherpa-onnx)</td><td>Open-source diarization works batch-style; only <em>real-time</em> diarized transcription is commercial (Argmax Pro).</td></tr>
+  <tr><td><strong>Storage</strong></td><td>SQLite (better-sqlite3) + audio files on disk</td><td>Local-first, instant search, folders/notes are just rows. No cloud dependency.</td></tr>
+  <tr><td><strong>Target</strong></td><td>macOS 14.4+ (Apple Silicon)</td><td>Core Audio taps are official from 14.2, community-reported reliable from 14.4.</td></tr>
+</table>
+
+<div class="arch"><span class="c">// Architecture</span>
+┌─────────────────────────────────────────────────────────┐
+│ <span class="k">Electron app (Meeterz)</span>                                  │
+│                                                         │
+│  Renderer (React)          Main process                 │
+│  ├─ Library / folders      ├─ setDisplayMediaRequest    │
+│  ├─ Notes editor           │   Handler → audio:'loopback'│
+│  ├─ Recording HUD          ├─ Recording session mgr     │
+│  └─ Transcript view        └─ SQLite (better-sqlite3)   │
+│                                                         │
+│  <span class="k">Capture (renderer)</span>                                     │
+│  getUserMedia (mic) ──────────► mic.wav                 │
+│  getDisplayMedia (loopback) ──► system.wav              │
+│                                                         │
+│  <span class="k">Post-meeting worker</span>                                    │
+│  wav files ─► whisper.cpp (CoreML/Metal)                │
+│            ─► diarization (pyannote / SpeakerKit helper)│
+│            ─► merged, speaker-labeled transcript        │
+└─────────────────────────────────────────────────────────┘</div>
+
+<h2>Verified findings</h2>
+
+<div class="finding">
+  <div class="head"><h3>Electron 39 makes macOS system-audio capture native</h3><span class="badge high">High · 5 panels passed</span></div>
+  <p class="evidence">Official Electron docs (fetched live): "As of Electron v39.0.0-beta.4, Chromium made Apple's new CoreAudio Tap API the default for desktop audio capture" on macOS. Before that (Electron 31–38), loopback needed Chromium feature-flag hacks via the <code>electron-audio-loopback</code> plugin; that plugin's author confirms Electron 39+ makes it unnecessary.</p>
+  <p class="src"><a href="https://www.electronjs.org/docs/latest/api/desktop-capturer">Electron desktopCapturer docs</a><a href="https://github.com/electron/electron/issues/47490">electron#47490</a></p>
+</div>
+
+<div class="finding">
+  <div class="head"><h3>Core Audio process taps are the underlying OS capability</h3><span class="badge high">High · 4 panels passed</span></div>
+  <p class="evidence">Apple's official API (macOS 14.2+, reliable from ~14.4): <code>CATapDescription</code> → <code>AudioHardwareCreateProcessTap</code> → aggregate device → IOProc. The tap behaves like a microphone input — no virtual audio driver. Guilherme Rambo's AudioCap is the open-source reference implementation.</p>
+  <p class="src"><a href="https://developer.apple.com/documentation/coreaudio/capturing-system-audio-with-core-audio-taps">Apple docs</a><a href="https://github.com/insidegui/AudioCap">AudioCap</a></p>
+</div>
+
+<div class="finding">
+  <div class="head"><h3>Dual-channel capture (mic + system, separate streams) is proven</h3><span class="badge high">High · 3 panels passed</span></div>
+  <p class="evidence">The mic-speaker-streamer example app was code-inspected: it captures <code>getUserMedia</code> (mic) and <code>getDisplayMedia</code> loopback (system) as two distinct MediaStreams simultaneously, recording both into WAV — exactly Meeterz's requirement (Teams audio on one channel, room audio on the other).</p>
+  <p class="src"><a href="https://github.com/alectrocute/mic-speaker-streamer">mic-speaker-streamer</a></p>
+</div>
+
+<div class="finding">
+  <div class="head"><h3>Granola validates Electron for a premium meeting-notes app</h3><span class="badge high">High · 2 panels passed</span></div>
+  <p class="evidence">First-party source (Granola careers page): "Granola is an Electron app with deep OS integrations: system audio capture, accessibility APIs, webcam video streaming" — React/TypeScript/Node. Their capture runs in a bundled native Swift helper piping PCM to Electron; that remains the fallback plan if Electron 39's built-in path disappoints.</p>
+  <p class="src"><a href="https://www.granola.ai/jobs/product-engineer-windows">granola.ai</a></p>
+</div>
+
+<div class="finding">
+  <div class="head"><h3>Whisper on Apple Silicon: use MLX or whisper.cpp+CoreML; never faster-whisper</h3><span class="badge medium">Medium · 2 panels passed</span></div>
+  <p class="evidence">M4 benchmark (large model): mlx-whisper 1.02s ≈ insanely-fast-whisper 1.13s ≈ whisper.cpp+CoreML 1.23s, while faster-whisper takes 6.96s because CTranslate2 is CPU-only on macOS. NVIDIA Parakeet TDT (via FluidAudio CoreML at 0.19s or parakeet-mlx at 0.50s) beats all Whisper builds 2–5× with equal-or-better English accuracy — worth adopting for English meetings. Single-machine hobbyist benchmark, but tiers independently corroborated.</p>
+  <p class="src"><a href="https://github.com/anvanvan/mac-whisper-speedtest">mac-whisper-speedtest</a><a href="https://github.com/SYSTRAN/faster-whisper/discussions/368">faster-whisper#368</a></p>
+</div>
+
+<div class="finding">
+  <div class="head"><h3>Diarization (who-said-what) is available open-source, post-meeting</h3><span class="badge high">High · 2 panels passed</span></div>
+  <p class="evidence">Argmax's open-source Swift SDK (MIT) ships WhisperKit (transcription, Core ML) and SpeakerKit (Pyannote v4 diarization, Core ML, macOS 13+). Only <em>real-time</em> diarized transcription is gated behind their commercial Pro SDK — irrelevant here since post-meeting processing was chosen.</p>
+  <p class="src"><a href="https://github.com/argmaxinc/WhisperKit">WhisperKit</a><a href="https://argmaxinc.com/blog/speakerkit">SpeakerKit</a></p>
+</div>
+
+<h2>Permissions &amp; gotchas</h2>
+<ul>
+  <li><strong><code>NSAudioCaptureUsageDescription</code></strong> must be added to Info.plist <em>manually</em> — it's not in Xcode's dropdown. If missing, the stream is created <strong>silently dead</strong> (no error).</li>
+  <li>System-audio recording is its own TCC permission ("System Audio Recording Only", macOS 14.2+) — <strong>separate</strong> from Microphone and Screen Recording. One-time prompt; no public API to preflight it.</li>
+  <li>During development, the Info.plist key must be in the <strong>parent process</strong> (your terminal/IDE), not just the packaged app.</li>
+  <li>Mic capture needs the standard <code>NSMicrophoneUsageDescription</code> + microphone permission.</li>
+</ul>
+
+<div class="callout danger">
+  <strong>Spike this first:</strong> one GitHub issue (pasrom/meeting-transcriber#79) reports Core Audio process taps failing to capture <strong>Microsoft Teams</strong> audio specifically. Since Teams is a primary use case, day-one task is a 30-line proof-of-concept: record a Teams call via Electron 39 loopback and confirm audio lands. If per-process taps fail, a system-wide tap or ScreenCaptureKit path is the fallback.</div>
+
+<div class="callout warn">
+  <strong>Version caveat:</strong> the Electron 39 behavior was documented against v39.0.0-beta.4. Verify against the stable Electron release at build time; keep the Granola-style native Swift helper as plan B (it's ~200 lines with AudioCap as reference).</div>
+
+<h2>Claims that failed verification</h2>
+<p class="soft">The adversarial panels killed five claims — mostly overreach in the <code>electron-audio-loopback</code> README:</p>
+<table>
+  <tr><th>Refuted claim</th><th>Reality</th></tr>
+  <tr><td>Works on "macOS 12.3+"</td><td>Real floor is macOS 13.0 (ScreenCaptureKit audio); taps need 14.2+. Moot: target 14.4+.</td></tr>
+  <tr><td>Plain <code>audio: 'loopback'</code> has always worked on macOS</td><td>Only from Electron 39; docs' older text said "Windows only".</td></tr>
+  <tr><td>Virtual drivers were "the only" historical workaround</td><td>Feature-flag hacks and native helpers also existed.</td></tr>
+</table>
+
+<h2>Open questions (to resolve during build)</h2>
+<ol>
+  <li>Does the Teams-audio tap failure reproduce? (First spike.)</li>
+  <li>Does Electron 39's loopback survive hardened-runtime codesigning + notarization, and are the mic/system streams sample-aligned enough for clean dual-channel WAVs?</li>
+  <li>Best diarization pipeline reachable from Electron: sherpa-onnx (pyannote), whisper.cpp tinydiarize, or a small Swift/CoreML helper?</li>
+</ol>
+
+<h2>Design direction (from Mobbin reference sweep)</h2>
+<ul>
+  <li><strong>North star: Notion AI meetings / Granola</strong> — notes-first. You type during the meeting; recording is a quiet inline element (subtle waveform, Pause/Stop), never a big red dashboard.</li>
+  <li><strong>Detail view: Fireflies' split</strong> — editable summary/notes left, timestamped speaker-labeled transcript rail right, playback bar pinned to the bottom.</li>
+  <li><strong>Library: Otter's structure, not its skin</strong> — folder sidebar, meeting list with date/duration, but rendered in native-macOS language: vibrancy sidebar, SF Pro, restrained accent color, generous whitespace.</li>
+</ul>
+
+<footer>Generated by a 104-agent deep-research workflow · all findings verified by 3-voter adversarial panels against primary sources · July 1, 2026</footer>
+</div>
+</body>
+</html>

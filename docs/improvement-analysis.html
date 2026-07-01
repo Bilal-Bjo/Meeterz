@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meeterz — Improvement Analysis</title>
+<style>
+  :root {
+    --bg: #fafaf9; --surface: #fff; --ink: #1c1917; --ink-soft: #57534e; --ink-faint: #a8a29e;
+    --accent: #0d7dcf; --green: #15803d; --green-bg: #f0fdf4; --amber: #b45309; --amber-bg: #fffbeb;
+    --red: #b91c1c; --red-bg: #fef2f2; --violet: #6d28d9; --violet-bg: #f5f3ff;
+    --border: #e7e5e4; --mono: "SF Mono", ui-monospace, Menlo, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; background: var(--bg);
+         color: var(--ink); line-height: 1.65; font-size: 16px; -webkit-font-smoothing: antialiased; }
+  .page { max-width: 900px; margin: 0 auto; padding: 64px 32px 96px; }
+  .eyebrow { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin-bottom: 12px; }
+  h1 { font-size: 38px; font-weight: 700; letter-spacing: -.02em; line-height: 1.15; margin-bottom: 12px; }
+  .subtitle { font-size: 17px; color: var(--ink-soft); max-width: 660px; margin-bottom: 8px; }
+  h2 { font-size: 23px; font-weight: 700; letter-spacing: -.01em; margin: 52px 0 8px; padding-top: 24px; border-top: 1px solid var(--border); }
+  h2 .tag { font-size: 12px; font-weight: 600; vertical-align: middle; margin-left: 10px; padding: 3px 10px; border-radius: 999px; letter-spacing: .02em; }
+  .tag.now { color: var(--red); background: var(--red-bg); }
+  .tag.next { color: var(--amber); background: var(--amber-bg); }
+  .tag.later { color: var(--violet); background: var(--violet-bg); }
+  h2 + p.lead { color: var(--ink-soft); margin-bottom: 20px; font-size: 15px; }
+  p { margin-bottom: 14px; }
+  a { color: var(--accent); text-decoration: none; }
+  code { font-family: var(--mono); font-size: .85em; background: #f5f5f4; border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; }
+  .item { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 22px; margin-bottom: 12px; }
+  .item .head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+  .item h3 { font-size: 16px; font-weight: 650; }
+  .item .effort { font-size: 12px; font-weight: 600; color: var(--ink-faint); white-space: nowrap; }
+  .item p { font-size: 14.5px; color: var(--ink-soft); margin-bottom: 6px; }
+  .item p:last-child { margin-bottom: 0; }
+  .item .why { color: var(--ink); }
+  .verdict { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 26px 30px; margin: 32px 0;
+             box-shadow: 0 1px 2px rgba(0,0,0,.03), 0 8px 24px rgba(0,0,0,.04); }
+  .verdict .label { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--green); margin-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0 24px; background: var(--surface); font-size: 14px;
+          border-radius: 12px; border-style: hidden; box-shadow: 0 0 0 1px var(--border); overflow: hidden; }
+  th { text-align: left; font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-faint);
+       padding: 10px 14px; border-bottom: 1px solid var(--border); background: #fafaf9; }
+  td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--border); font-size: 13px; color: var(--ink-faint); }
+</style>
+</head>
+<body>
+<div class="page">
+
+<div class="eyebrow">Improvement Analysis · July 1, 2026</div>
+<h1>Making Meeterz great</h1>
+<p class="subtitle">Where v1 stands, what's genuinely missing, and a prioritized path — based on the shipped codebase, the category leaders (Granola, Otter, superwhisper, MacWhisper), and the open questions from the original research.</p>
+
+<div class="verdict">
+  <div class="label">The one-paragraph verdict</div>
+  <p>v1 nailed the hard technical problem (driver-free dual-channel capture + on-device multilingual transcription) and the core UX shape. What separates it from a product you'd rely on daily is, in order: <strong>trust</strong> (crash recovery, delete confirmations, a validated real-Teams run), <strong>intelligence</strong> (summaries and action items — the single feature that made Granola a category leader), and <strong>ambient presence</strong> (menu-bar recording, calendar awareness). Polish before features; intelligence before ambience.</p>
+</div>
+
+<h2>Tier 1 — Trust &amp; robustness <span class="tag now">do first</span></h2>
+<p class="lead">Bugs-in-waiting and friction I can point to in the current code. Cheap to fix, and any one of them failing during a real client meeting destroys trust in the whole app.</p>
+
+<div class="item">
+  <div class="head"><h3>Crash recovery for in-flight recordings</h3><span class="effort">~half day</span></div>
+  <p class="why">If the app crashes or is force-quit mid-meeting, the meeting is stuck in "recording" forever and the WAV header says 0 bytes — the audio is on disk but unplayable and untranscribed.</p>
+  <p>On startup: find meetings with status <code>recording</code>, repair WAV headers from file size (the data is intact — <code>WavWriter</code> streams to disk), set real duration, and offer to transcribe. This turns the worst failure mode into a non-event.</p>
+</div>
+
+<div class="item">
+  <div class="head"><h3>Validate against a real Teams call</h3><span class="effort">15 min, manual</span></div>
+  <p class="why">The research flagged one report of Core Audio taps failing on Teams specifically (pasrom/meeting-transcriber#79). Our E2E proves loopback works for system TTS — a real Teams call is the one untested variable left.</p>
+  <p>Join a Teams echo/test call, record 2 minutes, confirm the transcript. If it fails, the fallback is already scoped: a ~200-line Swift helper using a system-wide tap (AudioCap as reference).</p>
+</div>
+
+<div class="item">
+  <div class="head"><h3>Confirm destructive actions + undo</h3><span class="effort">~2 h</span></div>
+  <p class="why">Deleting a meeting or folder is currently instant and irreversible — one misclick erases a client meeting's audio, transcript and notes.</p>
+  <p>macOS-native confirm sheet on delete; move audio to Trash (<code>shell.trashItem</code>) instead of leaving orphans; delete also currently leaves the WAVs on disk — clean that up too.</p>
+</div>
+
+<div class="item">
+  <div class="head"><h3>Pause / resume recording</h3><span class="effort">~half day</span></div>
+  <p class="why">Real meetings have breaks and sidebars you don't want recorded. The HUD has Stop only.</p>
+  <p>Suspend the worklet pipes (keep streams alive), show a paused state in the HUD. The spec's Notion reference has this pattern already (Pause / Stop).</p>
+</div>
+
+<div class="item">
+  <div class="head"><h3>Surface transcription errors with a retry</h3><span class="effort">~2 h</span></div>
+  <p class="why">On failure the meeting just shows an "error" state; the actual message goes to the main-process console where nobody sees it, and there's no way to re-run without re-recording.</p>
+  <p>Store the error message on the meeting, show it in the rail with a "Try again" button (the WAVs are still there — retry is free).</p>
+</div>
+
+<div class="item">
+  <div class="head"><h3>Folder rename UI + drag-and-drop filing</h3><span class="effort">~half day</span></div>
+  <p class="why">The rename API exists in main and preload but has no UI — folders can only be created or deleted. Moving a meeting requires opening it and using the dropdown.</p>
+  <p>Double-click to rename (Finder-style), drag meeting rows onto folders in the sidebar.</p>
+</div>
+
+<h2>Tier 2 — Intelligence <span class="tag next">the differentiator</span></h2>
+<p class="lead">What made Granola a breakout wasn't recording — it was what happens <em>after</em>. This tier is where Meeterz goes from "recorder" to "why would I ever take manual minutes again".</p>
+
+<div class="item">
+  <div class="head"><h3>AI summaries, action items &amp; decisions</h3><span class="effort">~2–3 days</span></div>
+  <p class="why">The highest-value feature in the entire space. After transcription, generate: TL;DR, action items (with owners when inferable), decisions, open questions — blended with your typed notes, Granola-style ("enhance my notes", not "replace my notes").</p>
+  <p>Two backends, user's choice: <strong>local</strong> via Ollama (llama3.x / qwen — keeps the 100%-private story intact) or <strong>Claude API</strong> for best quality as an explicit opt-in. Works in NL/FR/EN since the transcript language is known. Prompt template per meeting type (see templates below).</p>
+</div>
+
+<div class="item">
+  <div class="head"><h3>Full-text search that actually searches</h3><span class="effort">~1 day</span></div>
+  <p class="why">Current search is a client-side <code>includes()</code> over raw JSON strings — fine at 20 meetings, useless at 500, and it can't show <em>where</em> the match was.</p>
+  <p>SQLite FTS5 over title + notes + transcript text, with snippet highlights in results and jump-to-segment in the transcript. This is the feature that makes the archive compound in value over months.</p>
+</div>
+
+<div class="item">
+  <div class="head"><h3>Click-to-seek playback synced with the transcript</h3><span class="effort">~1 day</span></div>
+  <p class="why">Segments have timestamps and the audio is right there, but they're not connected — verifying "did she really say X?" means scrubbing manually.</p>
+  <p>Click a segment → audio jumps there; highlight the current segment during playback; one shared player instead of two stacked ones (pick channel by segment source).</p>
+</div>
+
+<div class="item">
+  <div class="head"><h3>Speaker diarization within a channel</h3><span class="effort">~2–3 days</span></div>
+  <p class="why">"Them" is one label for everyone on the Teams call, and the mic channel lumps everyone in the room together. Real meetings have 3+ voices.</p>
+  <p>Post-meeting pyannote via <strong>sherpa-onnx</strong> (research-verified route for Electron) on each channel → "Speaker 1/2/3" labels you can rename once and have stick per meeting. This was an open question in the research; sherpa-onnx is the pragmatic answer.</p>
+</div>
+
+<div class="item">
+  <div class="head"><h3>Notes templates + a real editor</h3><span class="effort">~1–2 days</span></div>
+  <p class="why">A plain textarea undersells the "notes-first" promise. 1:1s, standups, client calls and interviews have repeating structure.</p>
+  <p>Tiptap editor (headings, checklists, bold) with 3–4 starter templates; checklist items double as action items the AI can pre-fill. Keep it deliberately minimal — this is not Notion.</p>
+</div>
+
+<div class="item">
+  <div class="head"><h3>Export &amp; share</h3><span class="effort">~half day</span></div>
+  <p>Meeting → Markdown / PDF (title, notes, summary, transcript) via <code>Cmd+E</code>; copy-as-Markdown for pasting into Slack/Notion/email. Local-first apps live or die on how easily data gets <em>out</em>.</p>
+</div>
+
+<h2>Tier 3 — Ambient presence <span class="tag later">the daily-habit layer</span></h2>
+<p class="lead">Features that remove the "remember to open the app" problem — the reason people abandon meeting recorders after two weeks.</p>
+
+<div class="item">
+  <div class="head"><h3>Menu-bar mode + global hotkey</h3><span class="effort">~1–2 days</span></div>
+  <p>Tray icon with one-click record (visible red state while recording), <code>⌥⌘R</code> from anywhere, dock badge during recording. The main window becomes something you open to <em>review</em>, not to <em>start</em>.</p>
+</div>
+
+<div class="item">
+  <div class="head"><h3>Calendar awareness</h3><span class="effort">~2 days</span></div>
+  <p>Read the macOS calendar (EventKit via a tiny Swift helper): auto-title meetings from the current event, attach attendees, and nudge — "Weekly sync started. Record?" This is Granola's retention engine and it's very achievable locally.</p>
+</div>
+
+<div class="item">
+  <div class="head"><h3>Live transcript during the meeting</h3><span class="effort">~3–5 days</span></div>
+  <p>You chose post-meeting (rightly, for v1) — but streaming whisper.cpp on 15–30 s chunks during recording gets 90% of the live feel with the same stack, feeding the transcript rail in near-real-time. Big demo-wow, useful for "what did he just say?".</p>
+</div>
+
+<div class="item">
+  <div class="head"><h3>Auto-stop on silence + audio hygiene</h3><span class="effort">~1 day</span></div>
+  <p>Detect long trailing silence and offer to stop (forgot-to-stop is the #1 recorder failure); mic level check before recording starts ("your mic looks muted"); VAD pre-filter before whisper to skip silent stretches — big speedup on hour-long meetings.</p>
+</div>
+
+<h2>Tier 4 — Performance &amp; distribution</h2>
+
+<table>
+  <tr><th>Change</th><th>Why</th></tr>
+  <tr><td><strong>Bundle whisper-cli + in-app model manager</strong></td><td>Right now the app needs <code>brew install whisper-cpp</code> and a manual model download — a non-starter for anyone else using the app. Bundle the binary, download models in-app with progress UI.</td></tr>
+  <tr><td><strong>Model upgrade path</strong></td><td><code>small</code> is a good default; offer <code>large-v3-turbo</code> for accuracy and <strong>Parakeet TDT via parakeet-mlx</strong> for English (research-verified 2–5× faster than any Whisper, better English accuracy).</td></tr>
+  <tr><td><strong>Compress archived audio</strong></td><td>16 kHz mono WAV ≈ 115 MB/hour. Transcode to AAC after transcription (~15 MB/hour) — keeps years of meetings cheap.</td></tr>
+  <tr><td><strong>Sign, notarize, auto-update</strong></td><td>Hardened-runtime codesigning + notarization (the research flagged verifying loopback survives it — test early), DMG, electron-updater. Required before sharing with anyone.</td></tr>
+  <tr><td><strong>App icon</strong></td><td>Still the electron-vite default. Small thing, first thing anyone sees.</td></tr>
+</table>
+
+<h2>Suggested sequence</h2>
+<table>
+  <tr><th>Release</th><th>Contents</th><th>Theme</th></tr>
+  <tr><td><strong>v1.1</strong> (days)</td><td>Crash recovery · real-Teams validation · delete confirm/undo · pause · error retry · folder rename/drag · app icon</td><td>Trustworthy</td></tr>
+  <tr><td><strong>v1.2</strong> (1–2 wks)</td><td>AI summaries + action items · FTS5 search · click-to-seek · export</td><td>Indispensable</td></tr>
+  <tr><td><strong>v1.3</strong> (1–2 wks)</td><td>Diarization · templates/editor · menu bar + hotkey · calendar</td><td>Ambient</td></tr>
+  <tr><td><strong>v1.4</strong></td><td>Live transcript · bundled whisper + model manager · signing/notarization/updates</td><td>Shareable</td></tr>
+</table>
+
+<p style="margin-top:24px">Two things I'd explicitly <strong>not</strong> do: cloud sync (breaks the local-first promise that differentiates Meeterz; revisit only with E2E encryption) and a meeting-bot that joins calls (Granola's whole thesis — validated by its success — is that bot-free capture is the better UX).</p>
+
+<footer>Analysis grounded in the shipped v1 codebase, the verified research report (docs/research-report.html), and competitor feature sets as of July 2026.</footer>
+</div>
+</body>
+</html>
