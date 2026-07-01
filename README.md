@@ -2,8 +2,18 @@
 
 Local-first meeting recorder and transcriber for macOS. Records **Teams/system audio** and the
 **room microphone** as separate channels — no virtual audio drivers — and transcribes on-device
-with Whisper (English, French, Dutch and 90+ other languages, auto-detected). Notes, folders,
-search. Nothing leaves your Mac.
+with Whisper. Nothing leaves your Mac.
+
+**Multilingual by design:** language is auto-detected every ~30-second window, so meetings that
+switch between Dutch, French and English mid-conversation (hello Belgium) come out right, with a
+language tag per segment.
+
+Features: live transcript while recording · pause/resume · speaker diarization within each
+channel (sherpa-onnx/pyannote) · Teams `.vtt` transcript import with speaker names · full-text
+search (SQLite FTS5) · click-a-line-to-play audio · rich notes (Tiptap) with meeting templates ·
+Markdown/PDF export · folders with drag-and-drop · menu-bar + ⌥⌘R global record toggle ·
+light/dark/system theme · crash recovery for interrupted recordings · WAV→AAC archival
+compression · in-app Whisper model manager.
 
 ## How it works
 

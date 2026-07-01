@@ -1,49 +1,70 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
-import type { Folder, Meeting } from '../types'
+import type { Folder, Meeting, TranscriptSegment } from '../types'
 import type { CaptureSources } from '../lib/capture'
 import { formatDuration } from '../lib/format'
 import { TranscriptRail } from './TranscriptRail'
-import { IconMic, IconSpeaker, IconTrash, IconWave } from './Icons'
+import { NotesEditor } from './NotesEditor'
+import { IconExport, IconMic, IconSpeaker, IconTrash, IconWave } from './Icons'
 
 interface MeetingDetailProps {
   meeting: Meeting
   folders: Folder[]
   recordingActive: boolean
+  liveSegments: TranscriptSegment[]
   onUpdate: (fields: Partial<Meeting>) => void
   onDelete: () => void
   onStartRecording: (sources: CaptureSources) => void
+  onToast: (text: string) => void
 }
 
 export function MeetingDetail({
   meeting,
   folders,
   recordingActive,
+  liveSegments,
   onUpdate,
   onDelete,
-  onStartRecording
+  onStartRecording,
+  onToast
 }: MeetingDetailProps): JSX.Element {
   const [title, setTitle] = useState(meeting.title)
-  const [notes, setNotes] = useState(meeting.notes)
-  const notesTimer = useRef<ReturnType<typeof setTimeout>>(null)
+  const [exportOpen, setExportOpen] = useState(false)
 
   useEffect(() => {
     setTitle(meeting.title)
-    setNotes(meeting.notes)
   }, [meeting.id])
 
-  const scheduleNotesSave = (value: string): void => {
-    setNotes(value)
-    if (notesTimer.current) clearTimeout(notesTimer.current)
-    notesTimer.current = setTimeout(() => onUpdate({ notes: value }), 500)
-  }
-
   const createdAt = new Date(meeting.created_at)
-  const canRecord = meeting.status === 'idle' && !meeting.audio_dir && !recordingActive
+  const canRecord =
+    meeting.status === 'idle' && !meeting.audio_dir && meeting.origin !== 'import' && !recordingActive
+
+  const doExport = async (kind: 'md' | 'pdf' | 'copy'): Promise<void> => {
+    setExportOpen(false)
+    if (kind === 'md') {
+      if (await window.api.exportMeeting.markdown(meeting.id)) onToast('Exported Markdown.')
+    } else if (kind === 'pdf') {
+      if (await window.api.exportMeeting.pdf(meeting.id)) onToast('Exported PDF.')
+    } else {
+      if (await window.api.exportMeeting.copyMarkdown(meeting.id)) onToast('Copied as Markdown.')
+    }
+  }
 
   return (
     <main className="detail">
       <div className="detail-toolbar">
+        <div className="export-wrap">
+          <button className="icon-btn" title="Export meeting" onClick={() => setExportOpen(!exportOpen)}>
+            <IconExport size={15} />
+          </button>
+          {exportOpen && (
+            <div className="export-menu" onMouseLeave={() => setExportOpen(false)}>
+              <button onClick={() => doExport('md')}>Export Markdown…</button>
+              <button onClick={() => doExport('pdf')}>Export PDF…</button>
+              <button onClick={() => doExport('copy')}>Copy as Markdown</button>
+            </div>
+          )}
+        </div>
         <button className="icon-btn" title="Delete meeting" onClick={onDelete}>
           <IconTrash size={15} />
         </button>
@@ -70,6 +91,7 @@ export function MeetingDetail({
               })}
             </span>
             {meeting.duration_sec > 0 && <span>· {formatDuration(meeting.duration_sec)}</span>}
+            {meeting.origin === 'import' && <span className="status-chip import">Imported</span>}
             <select
               className="folder-select"
               value={meeting.folder_id ?? ''}
@@ -88,20 +110,23 @@ export function MeetingDetail({
               <span className="status-chip busy">Transcribing…</span>
             )}
             {meeting.status === 'recording' && <span className="status-chip rec">Recording</span>}
+            {meeting.status === 'error' && <span className="status-chip err">Failed</span>}
           </div>
 
           {canRecord && <StartRecordingCard onStart={onStartRecording} />}
 
-          <textarea
-            className="notes-editor"
-            placeholder="Type your notes…"
-            value={notes}
-            onChange={(e) => scheduleNotesSave(e.target.value)}
-            spellCheck
+          <NotesEditor
+            meetingId={meeting.id}
+            initialHtml={meeting.notes}
+            onChange={(html) => onUpdate({ notes: html })}
           />
         </div>
 
-        <TranscriptRail meeting={meeting} />
+        <TranscriptRail
+          meeting={meeting}
+          liveSegments={liveSegments}
+          onRetry={() => window.api.transcribe.retry(meeting.id)}
+        />
       </div>
     </main>
   )

@@ -9,10 +9,12 @@ export interface Folder {
 }
 
 export interface TranscriptSegment {
-  source: 'mic' | 'system'
+  source: 'mic' | 'system' | 'import'
   start: number
   end: number
   text: string
+  speaker?: string // diarized label ("Speaker 1") or imported name ("Jan Peeters")
+  lang?: string // detected language code for the window this segment came from
 }
 
 export interface Meeting {
@@ -26,13 +28,19 @@ export interface Meeting {
   transcript: string | null
   audio_dir: string | null
   channels: string
+  error_msg: string | null
+  audio_format: 'wav' | 'm4a'
+  origin: 'recording' | 'import'
+}
+
+export interface SearchHit {
+  id: number
+  snippet: string
 }
 
 let db: Database.Database
 
-export function initDb(dbPath?: string): void {
-  db = new Database(dbPath ?? join(app.getPath('userData'), 'meeterz.db'))
-  db.pragma('journal_mode = WAL')
+function migrate(): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS folders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,14 +57,93 @@ export function initDb(dbPath?: string): void {
       status TEXT NOT NULL DEFAULT 'idle',
       transcript TEXT,
       audio_dir TEXT,
-      channels TEXT NOT NULL DEFAULT '[]'
+      channels TEXT NOT NULL DEFAULT '[]',
+      error_msg TEXT,
+      audio_format TEXT NOT NULL DEFAULT 'wav',
+      origin TEXT NOT NULL DEFAULT 'recording'
+    );
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+    CREATE VIRTUAL TABLE IF NOT EXISTS meetings_fts USING fts5(
+      title, notes, transcript
     );
   `)
-  // Migration for databases created before the channels column existed.
+  // Earlier builds created meetings_fts as contentless (content=''), which
+  // cannot be updated — rebuild it as a regular FTS table.
+  const ftsSql = (
+    db
+      .prepare("SELECT sql FROM sqlite_master WHERE name = 'meetings_fts'")
+      .get() as { sql: string } | undefined
+  )?.sql
+  if (ftsSql?.includes("content=''")) {
+    db.exec('DROP TABLE meetings_fts;')
+    db.exec('CREATE VIRTUAL TABLE meetings_fts USING fts5(title, notes, transcript);')
+  }
+  for (const col of [
+    `channels TEXT NOT NULL DEFAULT '[]'`,
+    `error_msg TEXT`,
+    `audio_format TEXT NOT NULL DEFAULT 'wav'`,
+    `origin TEXT NOT NULL DEFAULT 'recording'`
+  ]) {
+    try {
+      db.exec(`ALTER TABLE meetings ADD COLUMN ${col}`)
+    } catch {
+      /* column already exists */
+    }
+  }
+}
+
+function transcriptPlain(transcript: string | null): string {
+  if (!transcript) return ''
   try {
-    db.exec(`ALTER TABLE meetings ADD COLUMN channels TEXT NOT NULL DEFAULT '[]'`)
+    return (JSON.parse(transcript) as TranscriptSegment[]).map((s) => s.text).join(' ')
   } catch {
-    /* column already exists */
+    return ''
+  }
+}
+
+function notesPlain(notes: string): string {
+  // Notes are Tiptap HTML; strip tags for indexing.
+  return notes.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function reindex(id: number): void {
+  const m = db.prepare('SELECT * FROM meetings WHERE id = ?').get(id) as Meeting | undefined
+  db.prepare('DELETE FROM meetings_fts WHERE rowid = ?').run(id)
+  if (m) {
+    db.prepare('INSERT INTO meetings_fts (rowid, title, notes, transcript) VALUES (?, ?, ?, ?)').run(
+      id,
+      m.title,
+      notesPlain(m.notes),
+      transcriptPlain(m.transcript)
+    )
+  }
+}
+
+export function initDb(dbPath?: string): void {
+  db = new Database(dbPath ?? join(app.getPath('userData'), 'meeterz.db'))
+  db.pragma('journal_mode = WAL')
+  migrate()
+  // Index any meetings the FTS table doesn't know about yet.
+  const missing = db
+    .prepare('SELECT id FROM meetings WHERE id NOT IN (SELECT rowid FROM meetings_fts)')
+    .all() as { id: number }[]
+  for (const { id } of missing) reindex(id)
+}
+
+export const settings = {
+  get(key: string, fallback: string): string {
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
+      | { value: string }
+      | undefined
+    return row?.value ?? fallback
+  },
+  set(key: string, value: string): void {
+    db.prepare(
+      'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+    ).run(key, value)
   }
 }
 
@@ -85,11 +172,13 @@ export const meetings = {
   get(id: number): Meeting | undefined {
     return db.prepare('SELECT * FROM meetings WHERE id = ?').get(id) as Meeting | undefined
   },
-  create(title: string, folderId: number | null): Meeting {
+  create(title: string, folderId: number | null, origin: 'recording' | 'import' = 'recording'): Meeting {
     const info = db
-      .prepare('INSERT INTO meetings (title, folder_id, created_at) VALUES (?, ?, ?)')
-      .run(title, folderId, Date.now())
-    return this.get(info.lastInsertRowid as number)!
+      .prepare('INSERT INTO meetings (title, folder_id, created_at, origin) VALUES (?, ?, ?, ?)')
+      .run(title, folderId, Date.now(), origin)
+    const id = info.lastInsertRowid as number
+    reindex(id)
+    return this.get(id)!
   },
   update(id: number, fields: Partial<Meeting>): void {
     const allowed = [
@@ -100,7 +189,9 @@ export const meetings = {
       'status',
       'transcript',
       'audio_dir',
-      'channels'
+      'channels',
+      'error_msg',
+      'audio_format'
     ]
     const keys = Object.keys(fields).filter((k) => allowed.includes(k))
     if (keys.length === 0) return
@@ -109,8 +200,30 @@ export const meetings = {
       ...keys.map((k) => fields[k as keyof Meeting]),
       id
     )
+    if (keys.some((k) => ['title', 'notes', 'transcript'].includes(k))) reindex(id)
   },
   remove(id: number): void {
     db.prepare('DELETE FROM meetings WHERE id = ?').run(id)
+    db.prepare('DELETE FROM meetings_fts WHERE rowid = ?').run(id)
+  },
+  stuckRecordings(): Meeting[] {
+    return db.prepare("SELECT * FROM meetings WHERE status = 'recording'").all() as Meeting[]
+  },
+  search(query: string): SearchHit[] {
+    const q = query
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((t) => `"${t}"*`)
+      .join(' ')
+    if (!q) return []
+    return db
+      .prepare(
+        `SELECT rowid AS id,
+                snippet(meetings_fts, -1, '', '', ' … ', 12) AS snippet
+         FROM meetings_fts WHERE meetings_fts MATCH ? ORDER BY rank LIMIT 50`
+      )
+      .all(q) as SearchHit[]
   }
 }

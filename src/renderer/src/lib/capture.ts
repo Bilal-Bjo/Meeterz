@@ -124,11 +124,15 @@ export class MeetingCapture {
   private async teardown(): Promise<void> {
     for (const pipe of this.pipes.values()) {
       pipe.node.port.onmessage = null
+      pipe.node.disconnect()
       pipe.stream.getTracks().forEach((t) => t.stop())
     }
     this.pipes.clear()
     if (this.ctx) {
-      await this.ctx.close().catch(() => {})
+      // AudioContext.close() can hang when a display-capture track is being
+      // torn down at the same time — don't let that wedge the stop flow.
+      const closing = this.ctx.close().catch(() => {})
+      await Promise.race([closing, new Promise((r) => setTimeout(r, 2000))])
       this.ctx = null
     }
   }

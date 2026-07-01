@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { JSX } from 'react'
-import type { Meeting } from '../types'
+import type { Meeting, SearchHit } from '../types'
 import { formatDuration, formatRelativeDay, formatTime } from '../lib/format'
 import { IconSearch } from './Icons'
 
@@ -11,8 +11,8 @@ interface MeetingListProps {
 }
 
 function snippet(m: Meeting): string {
-  const notes = m.notes.trim()
-  if (notes) return notes.replace(/\s+/g, ' ').slice(0, 90)
+  const notes = m.notes.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+  if (notes) return notes.slice(0, 90)
   if (m.transcript) {
     try {
       const segs = JSON.parse(m.transcript) as { text: string }[]
@@ -33,17 +33,30 @@ function StatusDot({ status }: { status: Meeting['status'] }): JSX.Element | nul
 
 export function MeetingList({ meetings, selectedId, onSelect }: MeetingListProps): JSX.Element {
   const [query, setQuery] = useState('')
+  const [hits, setHits] = useState<Map<number, string> | null>(null)
+
+  // Full-text search (SQLite FTS5) over title, notes and transcript.
+  useEffect(() => {
+    const q = query.trim()
+    if (!q) {
+      setHits(null)
+      return
+    }
+    let cancelled = false
+    const t = setTimeout(async () => {
+      const results: SearchHit[] = await window.api.meetings.search(q)
+      if (!cancelled) setHits(new Map(results.map((h) => [h.id, h.snippet])))
+    }, 150)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [query])
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return meetings
-    return meetings.filter(
-      (m) =>
-        m.title.toLowerCase().includes(q) ||
-        m.notes.toLowerCase().includes(q) ||
-        (m.transcript ?? '').toLowerCase().includes(q)
-    )
-  }, [meetings, query])
+    if (hits === null) return meetings
+    return meetings.filter((m) => hits.has(m.id))
+  }, [meetings, hits])
 
   const groups = useMemo(() => {
     const out: { day: string; items: Meeting[] }[] = []
@@ -82,6 +95,20 @@ export function MeetingList({ meetings, selectedId, onSelect }: MeetingListProps
                 key={m.id}
                 className={`meeting-row ${selectedId === m.id ? 'selected' : ''}`}
                 onClick={() => onSelect(m.id)}
+                onDoubleClick={() => {
+                  onSelect(m.id)
+                  requestAnimationFrame(() => {
+                    const el = document.querySelector<HTMLInputElement>('.detail-title')
+                    el?.focus()
+                    el?.select()
+                  })
+                }}
+                title="Double-click to rename"
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('meeterz/meeting-id', String(m.id))
+                  e.dataTransfer.effectAllowed = 'move'
+                }}
               >
                 <div className="row-top">
                   <span className="row-title">{m.title}</span>
@@ -91,7 +118,7 @@ export function MeetingList({ meetings, selectedId, onSelect }: MeetingListProps
                   {formatTime(m.created_at)}
                   {m.duration_sec > 0 && <> · {formatDuration(m.duration_sec)}</>}
                 </div>
-                <div className="row-snippet">{snippet(m)}</div>
+                <div className="row-snippet">{hits?.get(m.id) || snippet(m)}</div>
               </button>
             ))}
           </div>

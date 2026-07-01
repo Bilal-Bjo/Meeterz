@@ -37,7 +37,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg-sidebar: rgba(38, 38, 41, 0.68);
+    --bg-sidebar: rgba(30, 30, 33, 0.85);
     --bg-list: #232326;
     --bg-content: #1c1c1e;
     --bg-elevated: #2c2c2e;
@@ -461,6 +461,23 @@ select:focus-visible {
 
 .detail-title::placeholder {
   color: var(--ink-3);
+}
+
+/* Subtle affordance: the title is editable */
+.detail-title {
+  border-radius: 8px;
+  margin-left: -8px;
+  padding: 0 8px;
+  transition: background 120ms ease;
+}
+
+.detail-title:hover {
+  background: var(--hover);
+}
+
+.theme-row {
+  display: flex;
+  gap: 6px;
 }
 
 .detail-meta {
@@ -909,6 +926,422 @@ select:focus-visible {
 
 .dots-pulse i:nth-child(3) {
   animation-delay: 0.4s;
+}
+
+/* ── New in v1.1: live badge, seek, pause, import, settings, tiptap ──── */
+.live-badge {
+  margin-left: 8px;
+  color: var(--rec);
+  background: var(--rec-soft);
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.segment.seekable {
+  cursor: pointer;
+  border-radius: 8px;
+  margin-left: -8px;
+  margin-right: -8px;
+  padding: 4px 8px;
+}
+
+.segment.seekable:hover {
+  background: var(--hover);
+}
+
+.segment.active {
+  background: var(--accent-soft);
+  border-radius: 8px;
+  margin-left: -8px;
+  margin-right: -8px;
+  padding: 4px 8px;
+}
+
+.segment-lang {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.audio-hint {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.rail-error {
+  text-align: center;
+  padding: 40px 24px;
+}
+
+.rail-error-msg {
+  font-size: 12.5px;
+  color: var(--rec);
+  margin-bottom: 12px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.rec-dot.paused {
+  background: var(--ink-3);
+  animation: none;
+}
+
+.pause-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--control-bg);
+  color: var(--ink);
+}
+
+.pause-btn:hover {
+  background: var(--hover-strong);
+}
+
+.silence-hint {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-2);
+  padding: 8px 12px;
+  font-size: 12.5px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  animation: rise 240ms var(--ease-spring);
+}
+
+.silence-hint button {
+  color: var(--rec);
+  font-weight: 600;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sidebar-footer .nav-row {
+  color: var(--ink-2);
+}
+
+.drop-target,
+.nav-row.drop-target,
+.nav-row-wrap.drop-target {
+  background: var(--accent-soft);
+  outline: 1.5px dashed var(--accent);
+  outline-offset: -1.5px;
+  border-radius: var(--r-control);
+}
+
+.export-wrap {
+  position: relative;
+}
+
+.export-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-2);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  min-width: 190px;
+  z-index: 5;
+  animation: rise 160ms var(--ease-spring);
+}
+
+.export-menu button {
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.export-menu button:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.status-chip.err {
+  color: var(--rec);
+  background: var(--rec-soft);
+}
+
+.status-chip.import {
+  color: var(--ink-2);
+  background: var(--control-bg);
+}
+
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  max-width: 380px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-2);
+  padding: 11px 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  z-index: 30;
+  cursor: pointer;
+  animation: rise 240ms var(--ease-spring);
+}
+
+.toast.error {
+  border-color: rgba(255, 59, 48, 0.4);
+  color: var(--rec);
+}
+
+/* Settings modal */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+}
+
+.modal {
+  width: 520px;
+  max-width: calc(100vw - 64px);
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+  background: var(--bg-content);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-2);
+  padding: 24px 26px;
+  animation: rise 240ms var(--ease-spring);
+}
+
+.modal h2 {
+  font-size: 19px;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+.settings-warning {
+  background: var(--rec-soft);
+  border: 1px solid rgba(255, 59, 48, 0.3);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 12.5px;
+  margin-bottom: 16px;
+}
+
+.settings-section {
+  margin-bottom: 20px;
+}
+
+.settings-label {
+  font-size: 13px;
+  font-weight: 650;
+  margin-bottom: 6px;
+}
+
+.settings-hint {
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.settings-error {
+  font-size: 12px;
+  color: var(--rec);
+  margin-top: 8px;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.model-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.model-row:last-of-type {
+  border-bottom: none;
+}
+
+.model-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.model-name {
+  font-size: 13px;
+  display: block;
+}
+
+.model-size {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.model-installed {
+  font-size: 12px;
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.model-progress {
+  position: relative;
+  width: 110px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--control-bg);
+  overflow: hidden;
+}
+
+.model-progress-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent);
+  transition: width 200ms ease;
+}
+
+.model-progress-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.record-btn.small {
+  height: 24px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+/* Tiptap notes editor */
+.notes-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  max-width: 680px;
+  min-height: 200px;
+}
+
+.template-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.template-pill {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-2);
+  border: 1px dashed var(--border-strong);
+  border-radius: 999px;
+  padding: 3px 12px;
+  transition: all 120ms ease;
+}
+
+.template-pill:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  border-style: solid;
+}
+
+.notes-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.notes-editor .tiptap {
+  flex: 1;
+  outline: none;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--ink);
+  user-select: text;
+}
+
+.notes-editor .tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--ink-3);
+  pointer-events: none;
+  height: 0;
+}
+
+.notes-editor .tiptap h1 { font-size: 22px; margin: 14px 0 6px; }
+.notes-editor .tiptap h2 { font-size: 17px; margin: 14px 0 6px; }
+.notes-editor .tiptap h3 { font-size: 15px; margin: 12px 0 4px; font-weight: 650; }
+.notes-editor .tiptap p { margin-bottom: 6px; }
+.notes-editor .tiptap ul,
+.notes-editor .tiptap ol { padding-left: 22px; margin-bottom: 8px; }
+
+.notes-editor .tiptap ul[data-type='taskList'] {
+  list-style: none;
+  padding-left: 2px;
+}
+
+.notes-editor .tiptap ul[data-type='taskList'] li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.notes-editor .tiptap ul[data-type='taskList'] li > label {
+  flex-shrink: 0;
+}
+
+.notes-editor .tiptap ul[data-type='taskList'] li[data-checked='true'] > div {
+  color: var(--ink-3);
+  text-decoration: line-through;
 }
 
 /* ── Responsive (narrow windows) ─────────────────────────────────────── */

@@ -16,8 +16,10 @@ files:
 asarUnpack:
   - resources/**
 extraResources:
-  - from: models
-    to: models
+  - from: models/ggml-small.bin
+    to: models/ggml-small.bin
+  - from: models/diarization
+    to: models/diarization
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:

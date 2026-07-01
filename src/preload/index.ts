@@ -1,52 +1,57 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
-export interface MeeterzApi {
-  folders: {
-    list: () => Promise<unknown[]>
-    create: (name: string) => Promise<unknown>
-    rename: (id: number, name: string) => Promise<void>
-    remove: (id: number) => Promise<void>
-  }
-  meetings: {
-    list: () => Promise<unknown[]>
-    get: (id: number) => Promise<unknown>
-    create: (title: string, folderId: number | null) => Promise<unknown>
-    update: (id: number, fields: object) => Promise<unknown>
-    remove: (id: number) => Promise<void>
-  }
-  recording: {
-    start: (meetingId: number) => Promise<string>
-    append: (channel: 'mic' | 'system', data: ArrayBuffer) => void
-    stop: () => Promise<unknown>
-  }
-  onMeetingUpdated: (cb: (meeting: unknown) => void) => () => void
+function on(channel: string, cb: (payload: unknown) => void): () => void {
+  const listener = (_e: unknown, payload: unknown): void => cb(payload)
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.removeListener(channel, listener)
 }
 
-const api: MeeterzApi = {
+const api = {
   folders: {
     list: () => ipcRenderer.invoke('folders:list'),
-    create: (name) => ipcRenderer.invoke('folders:create', name),
-    rename: (id, name) => ipcRenderer.invoke('folders:rename', id, name),
-    remove: (id) => ipcRenderer.invoke('folders:remove', id)
+    create: (name: string) => ipcRenderer.invoke('folders:create', name),
+    rename: (id: number, name: string) => ipcRenderer.invoke('folders:rename', id, name),
+    remove: (id: number) => ipcRenderer.invoke('folders:remove', id)
   },
   meetings: {
     list: () => ipcRenderer.invoke('meetings:list'),
-    get: (id) => ipcRenderer.invoke('meetings:get', id),
-    create: (title, folderId) => ipcRenderer.invoke('meetings:create', title, folderId),
-    update: (id, fields) => ipcRenderer.invoke('meetings:update', id, fields),
-    remove: (id) => ipcRenderer.invoke('meetings:remove', id)
+    get: (id: number) => ipcRenderer.invoke('meetings:get', id),
+    create: (title: string, folderId: number | null) =>
+      ipcRenderer.invoke('meetings:create', title, folderId),
+    update: (id: number, fields: object) => ipcRenderer.invoke('meetings:update', id, fields),
+    remove: (id: number) => ipcRenderer.invoke('meetings:remove', id),
+    search: (query: string) => ipcRenderer.invoke('meetings:search', query)
   },
   recording: {
-    start: (meetingId) => ipcRenderer.invoke('recording:start', meetingId),
-    append: (channel, data) => ipcRenderer.send('recording:append', channel, data),
+    start: (meetingId: number) => ipcRenderer.invoke('recording:start', meetingId),
+    append: (channel: 'mic' | 'system', data: ArrayBuffer) =>
+      ipcRenderer.send('recording:append', channel, data),
+    pause: (paused: boolean) => ipcRenderer.invoke('recording:pause', paused),
     stop: () => ipcRenderer.invoke('recording:stop')
   },
-  onMeetingUpdated: (cb) => {
-    const listener = (_e: unknown, meeting: unknown): void => cb(meeting)
-    ipcRenderer.on('meeting:updated', listener)
-    return () => ipcRenderer.removeListener('meeting:updated', listener)
-  }
+  transcribe: {
+    retry: (meetingId: number) => ipcRenderer.invoke('transcribe:retry', meetingId)
+  },
+  importVtt: () => ipcRenderer.invoke('import:vtt'),
+  exportMeeting: {
+    markdown: (id: number) => ipcRenderer.invoke('export:markdown', id),
+    pdf: (id: number) => ipcRenderer.invoke('export:pdf', id),
+    copyMarkdown: (id: number) => ipcRenderer.invoke('export:copyMarkdown', id)
+  },
+  models: {
+    list: () => ipcRenderer.invoke('models:list'),
+    download: (file: string) => ipcRenderer.invoke('models:download', file),
+    setActive: (file: string) => ipcRenderer.invoke('models:setActive', file)
+  },
+  settings: {
+    get: (key: string, fallback: string) => ipcRenderer.invoke('settings:get', key, fallback),
+    set: (key: string, value: string) => ipcRenderer.invoke('settings:set', key, value)
+  },
+  onMeetingUpdated: (cb: (meeting: unknown) => void) => on('meeting:updated', cb),
+  onLiveSegments: (cb: (payload: unknown) => void) => on('live:segments', cb),
+  onToggleRecord: (cb: () => void) => on('command:toggle-record', cb),
+  onModelProgress: (cb: (payload: unknown) => void) => on('models:progress', cb)
 }
 
 if (process.contextIsolated) {

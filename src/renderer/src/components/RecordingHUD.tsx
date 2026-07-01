@@ -2,30 +2,44 @@ import { useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { MeetingCapture, CaptureSources } from '../lib/capture'
 import { formatDuration } from '../lib/format'
-import { IconMic, IconSpeaker, IconStop } from './Icons'
+import { IconMic, IconPause, IconPlay, IconSpeaker, IconStop } from './Icons'
 
 interface RecordingHUDProps {
   capture: MeetingCapture
-  startedAt: number
   sources: CaptureSources
+  paused: boolean
+  onTogglePause: () => void
   onStop: () => void
 }
 
-const BAR_COUNT = 48
+const BAR_COUNT = 44
+const SILENCE_HINT_AFTER_MS = 3 * 60 * 1000
+const SILENCE_LEVEL = 0.015
 
 export function RecordingHUD({
   capture,
-  startedAt,
   sources,
+  paused,
+  onTogglePause,
   onStop
 }: RecordingHUDProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [elapsed, setElapsed] = useState(0)
+  const [silentHint, setSilentHint] = useState(false)
+  const lastLoudRef = useRef(Date.now())
+  const activeMsRef = useRef(0)
+  const lastTickRef = useRef(Date.now())
 
+  // Elapsed counts only unpaused time.
   useEffect(() => {
-    const t = setInterval(() => setElapsed((Date.now() - startedAt) / 1000), 250)
+    const t = setInterval(() => {
+      const now = Date.now()
+      if (!paused) activeMsRef.current += now - lastTickRef.current
+      lastTickRef.current = now
+      setElapsed(activeMsRef.current / 1000)
+    }, 250)
     return () => clearInterval(t)
-  }, [startedAt])
+  }, [paused])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -42,8 +56,15 @@ export function RecordingHUD({
       frame++
       if (frame % 3 === 0) {
         const { mic, system } = capture.levels()
-        history.push(Math.max(mic, system))
+        const level = paused ? 0 : Math.max(mic, system)
+        history.push(level)
         history.shift()
+        if (level > SILENCE_LEVEL) {
+          lastLoudRef.current = Date.now()
+          setSilentHint(false)
+        } else if (!paused && Date.now() - lastLoudRef.current > SILENCE_HINT_AFTER_MS) {
+          setSilentHint(true)
+        }
       }
       const w = canvas.width
       const h = canvas.height
@@ -52,8 +73,7 @@ export function RecordingHUD({
       const gap = 2 * dpr
       const barW = (w - gap * (BAR_COUNT - 1)) / BAR_COUNT
       for (let i = 0; i < BAR_COUNT; i++) {
-        const level = history[i]
-        const barH = Math.max(2 * dpr, level * h)
+        const barH = Math.max(2 * dpr, history[i] * h)
         const recent = i > BAR_COUNT - 6
         ctx.fillStyle = recent
           ? 'rgba(255,69,58,0.8)'
@@ -70,12 +90,18 @@ export function RecordingHUD({
     }
     raf = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(raf)
-  }, [capture])
+  }, [capture, paused])
 
   return (
     <div className="recording-hud" role="status" aria-label="Recording in progress">
-      <span className="rec-dot" />
-      <span className="rec-timer">{formatDuration(elapsed)}</span>
+      {silentHint && !paused && (
+        <div className="silence-hint">
+          Quiet for a while — still meeting?
+          <button onClick={onStop}>Stop recording</button>
+        </div>
+      )}
+      <span className={`rec-dot ${paused ? 'paused' : ''}`} />
+      <span className="rec-timer">{paused ? 'Paused' : formatDuration(elapsed)}</span>
       <canvas ref={canvasRef} className="rec-wave" />
       <div className="rec-sources">
         <span className={`source-pill ${sources.system ? 'on' : ''}`} title="System audio (Teams)">
@@ -85,6 +111,13 @@ export function RecordingHUD({
           <IconMic size={13} />
         </span>
       </div>
+      <button
+        className="pause-btn"
+        title={paused ? 'Resume recording' : 'Pause recording'}
+        onClick={onTogglePause}
+      >
+        {paused ? <IconPlay size={14} /> : <IconPause size={14} />}
+      </button>
       <button className="stop-btn" onClick={onStop}>
         <IconStop size={14} />
         Stop
