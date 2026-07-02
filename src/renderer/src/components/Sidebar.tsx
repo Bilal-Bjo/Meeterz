@@ -67,7 +67,6 @@ export function Sidebar({
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-drag" />
       <button className="new-meeting-btn" onClick={onNewMeeting} disabled={recording}>
         <IconWave size={15} />
         New Meeting

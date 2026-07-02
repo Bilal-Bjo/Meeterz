@@ -218,6 +218,9 @@ function App(): JSX.Element {
 
   return (
     <div className="app">
+      {/* Must be the FIRST child: Chromium applies app-region rects in DOM
+          order (later wins), so every no-drag element must come after it. */}
+      <div className="titlebar-drag" />
       <button
         className={`panel-toggle left ${sidebarCollapsed ? 'collapsed' : ''}`}
         title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}

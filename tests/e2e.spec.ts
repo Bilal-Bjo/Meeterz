@@ -269,7 +269,8 @@ test('delete → Recently Deleted → restore → delete forever', async () => {
 })
 
 test('sidebar and transcript rail collapse and restore', async () => {
-  await page.locator('.meeting-row').first().click()
+  // Self-contained: create a meeting so the detail view (and its rail) exists.
+  await page.getByRole('button', { name: 'New Meeting' }).first().click()
   await expect(page.locator('.transcript-rail')).toBeVisible()
 
   await page.locator('.panel-toggle.left').click()

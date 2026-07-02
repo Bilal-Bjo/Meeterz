@@ -125,9 +125,11 @@ select:focus-visible {
 }
 
 /* Full-width window-drag strip along the titlebar area. Anything clickable
-   inside the top 40px MUST set -webkit-app-region: no-drag, or real mouse
-   clicks are swallowed by window dragging (synthetic test clicks are not). */
-.sidebar-drag {
+   inside the top 40px MUST set -webkit-app-region: no-drag AND be rendered
+   AFTER this element in the DOM — Chromium applies app-region rects in DOM
+   order, later wins. Real clicks are swallowed otherwise (synthetic test
+   clicks are not affected, so tests cannot catch this). */
+.titlebar-drag {
   position: absolute;
   top: 0;
   left: 0;
