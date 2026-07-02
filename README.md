@@ -1,73 +1,96 @@
-# Meeterz
+<p align="center">
+  <img src="docs/logo.png" width="128" alt="Meeterz logo" />
+</p>
 
-Local-first meeting recorder and transcriber for macOS. Records **Teams/system audio** and the
-**room microphone** as separate channels — no virtual audio drivers — and transcribes on-device
-with Whisper. Nothing leaves your Mac.
+<h1 align="center">Meeterz</h1>
 
-**Multilingual by design:** language is auto-detected every ~30-second window, so meetings that
-switch between Dutch, French and English mid-conversation (hello Belgium) come out right, with a
-language tag per segment.
+<p align="center">
+  <strong>Local-first meeting recorder &amp; transcriber for macOS.</strong><br />
+  Records Teams calls and in-room conversations, transcribes on-device — even when the
+  meeting switches languages mid-sentence. Nothing ever leaves your Mac.
+</p>
 
-Features: live transcript while recording · pause/resume · speaker diarization within each
-channel (sherpa-onnx/pyannote) · Teams `.vtt` transcript import with speaker names · full-text
-search (SQLite FTS5) · click-a-line-to-play audio · rich notes (Tiptap) with meeting templates ·
-Markdown/PDF export · folders with drag-and-drop · menu-bar + ⌥⌘R global record toggle ·
-light/dark/system theme · crash recovery for interrupted recordings · WAV→AAC archival
-compression · in-app Whisper model manager.
+---
+
+## Why Meeterz
+
+- **No bots, no cloud.** Captures **system audio** (Teams, Meet, anything) via macOS's
+  CoreAudio tap — no virtual audio drivers — plus the **microphone** for the room, as two
+  separate channels. Transcription runs locally with Whisper (Metal-accelerated).
+- **Built for multilingual meetings.** Language is auto-detected every ~30 seconds, so a
+  meeting that drifts between Dutch, French and English is transcribed correctly, with a
+  language tag per segment.
+- **Notes-first.** Type during the meeting; the transcript builds itself alongside.
+
+<p align="center">
+  <img src="docs/screenshots/mixed-language.png" width="800" alt="Mixed Dutch/French meeting transcribed with per-segment language tags" />
+</p>
+
+## Features
+
+- 🎙️ Dual-channel capture — Teams/system audio + room mic, driver-free (Electron 39 CoreAudio tap)
+- 🌍 Mixed-language transcription (NL/FR/EN + 90 more, auto-detected per window)
+- ⚡ Live transcript while recording (~15 s behind), pause/resume, silence & muted-mic hints
+- 🗣️ Speaker labels: Them / You per channel, plus on-device diarization (pyannote) within a channel
+- 🔇 Voice-activity detection — keyboard noise, coughs and silence never reach the transcript
+- 📥 Import Microsoft Teams `.vtt` transcripts with speaker names
+- 🔎 Full-text search across all meetings (SQLite FTS5) + find-in-transcript with ⌘F
+- ▶️ Click any transcript line to play that exact moment
+- 📝 Rich notes (headings, checklists) with meeting templates
+- 📤 Export to Markdown / PDF, copy as Markdown
+- 🗂 Folders with drag-and-drop; Recently Deleted with 30-day retention and restore
+- 🌙 Light / dark / system theme; collapsible panels; crash-safe recordings
+- 📎 Menu-bar quick record + global shortcut ⌥⌘R
+- 💾 Audio archived as AAC (~15 MB/hour); in-app Whisper model manager
+
+<p align="center">
+  <img src="docs/screenshots/dark-mode.png" width="800" alt="Dark mode" />
+</p>
+
+## Install
+
+**[Download the latest release](https://github.com/Bilal-Bjo/Meeterz/releases)** (Apple Silicon).
+
+1. Install whisper.cpp: `brew install whisper-cpp`
+2. Open the DMG and drag **Meeterz** to Applications.
+3. The build is not notarized yet — on first launch, right-click the app → **Open**
+   (or `xattr -dr com.apple.quarantine /Applications/Meeterz.app`).
+4. First recording prompts for **System Audio Recording** and **Microphone** permissions.
+
+Requires macOS 14.4+ on Apple Silicon. Whisper models (multilingual `small` by default) and
+the VAD model ship inside the app; other models can be downloaded from Settings.
 
 ## How it works
 
-- **System audio (Teams, any app):** Electron 39+'s `getDisplayMedia` loopback path, which
-  Chromium routes through Apple's CoreAudio process-tap API (macOS 14.2+). Audio-only grant —
-  no Screen Recording permission needed, only "System Audio Recording".
-- **Microphone:** `getUserMedia` with echo cancellation, so the mic channel stays clean of
-  speaker bleed.
-- Both channels stream as 16 kHz PCM to the main process and are written to separate WAVs.
-- **Transcription:** `whisper-cli` (whisper.cpp, Metal-accelerated) runs after the meeting on
-  each channel; segments are interleaved by time and labeled **Them** (system) / **You / Room**
-  (mic).
-- **Storage:** SQLite (better-sqlite3) in `~/Library/Application Support/meeterz`.
-
-## Requirements
-
-- macOS 14.4+ on Apple Silicon
-- `brew install whisper-cpp`
-- A Whisper model in `models/` — multilingual (recommended):
-  `curl -L -o models/ggml-small.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin`
-
-Env overrides: `MEETERZ_WHISPER` (whisper-cli path), `MEETERZ_MODEL` (model path).
+| Stage | Implementation |
+|---|---|
+| System audio | Electron 39 `getDisplayMedia` loopback → Apple CoreAudio process tap (audio-only grant; no Screen Recording permission) |
+| Microphone | `getUserMedia` with echo cancellation, so the mic channel stays clean of speaker bleed |
+| Capture | Both channels streamed as 16 kHz PCM to the main process, written as separate WAVs (crash-recoverable headers) |
+| Transcription | `whisper-cli` per ~30 s window with per-window language auto-detection; Silero VAD pre-filter; hallucination-loop cleanup |
+| Diarization | sherpa-onnx (pyannote segmentation + TitaNet embeddings), per channel, fully optional |
+| Storage | SQLite (FTS5 search index) + AAC audio in `~/Library/Application Support/meeterz` |
 
 ## Develop
 
 ```sh
+brew install whisper-cpp
 npm install
+curl -L -o models/ggml-small.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
+curl -L -o models/ggml-silero-v5.1.2.bin https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin
 npm run dev
 ```
 
-First recording prompts for **System Audio Recording** and **Microphone** permissions. In dev,
-the permission is attributed to the Electron binary (its Info.plist already carries the usage
-keys; `scripts/patch-electron-plist.mjs` ensures it).
-
-## Test
-
-End-to-end suite (Playwright driving the real app — records `say` output through the loopback
-and asserts the Whisper transcript in English, French and Dutch; also checks dark mode and
-responsive layout):
+End-to-end tests (Playwright drives the real app: records macOS `say` output through the
+loopback and asserts the Whisper transcript in English, French, Dutch and a mixed NL→FR
+recording — plus import, search, trash, themes and layout):
 
 ```sh
 npm run build && npm run test:e2e
 ```
 
-## Package
+Package a DMG: `npm run build:mac`
 
-```sh
-npm run build:mac
-```
+## License
 
-`electron-builder.yml` adds `NSAudioCaptureUsageDescription` / `NSMicrophoneUsageDescription`
-and bundles `models/` into app resources.
-
-## Docs
-
-- `docs/research-report.html` — verified technical research behind the architecture
-- `docs/UI_SPEC.md` + `docs/MOBBIN_REFS.md` — design system and references
+[MIT](LICENSE)
