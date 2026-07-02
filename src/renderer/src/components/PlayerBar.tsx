@@ -17,6 +17,7 @@ export interface SeekRequest {
 interface PlayerBarProps {
   meetingId: number
   audioFormat: 'wav' | 'm4a'
+  fallbackDuration: number
   channels: ('mic' | 'system')[]
   pins: TimelinePin[]
   seekReq: SeekRequest | null
@@ -31,6 +32,7 @@ interface PlayerBarProps {
 export function PlayerBar({
   meetingId,
   audioFormat,
+  fallbackDuration,
   channels,
   pins,
   seekReq,
@@ -201,8 +203,11 @@ export function PlayerBar({
           preload="metadata"
           onLoadedMetadata={(e) => {
             // capture before the updater runs — React nulls currentTarget
-            // after dispatch, and the updater executes at flush time
-            const dur = e.currentTarget.duration || 0
+            // after dispatch, and the updater executes at flush time.
+            // A stream Chromium can't index reports Infinity — fall back to
+            // the duration measured at recording time.
+            const raw = e.currentTarget.duration
+            const dur = Number.isFinite(raw) && raw > 0 ? raw : fallbackDuration
             setDuration((d) => Math.max(d, dur))
           }}
           {...(ch === channels[0]

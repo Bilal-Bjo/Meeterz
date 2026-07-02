@@ -277,6 +277,7 @@ export function MeetingDetail({
           key={meeting.id}
           meetingId={meeting.id}
           audioFormat={meeting.audio_format}
+          fallbackDuration={meeting.duration_sec}
           channels={channels}
           pins={pins}
           seekReq={seekReq}

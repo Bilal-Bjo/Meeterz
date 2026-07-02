@@ -5,7 +5,6 @@ import {
   ipcMain,
   session,
   systemPreferences,
-  net,
   protocol,
   dialog,
   Tray,
@@ -17,7 +16,6 @@ import {
 } from 'electron'
 import { join } from 'path'
 import { readFileSync } from 'fs'
-import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import trayGlyph from '../../resources/trayTemplate.png?asset'
@@ -113,12 +111,45 @@ function setupAudioCapture(): void {
 
 function setupAudioProtocol(): void {
   // Serves recordings to the renderer: meeterz-audio://recordings/<id>/<file>
-  protocol.handle('meeterz-audio', (request) => {
+  // Range requests are essential: M4A stores its index (moov atom) at the
+  // end of the file, so without byte ranges Chromium cannot determine the
+  // duration or seek — the player timeline appears dead.
+  protocol.handle('meeterz-audio', async (request) => {
     const url = new URL(request.url)
     const rel = decodeURIComponent(url.pathname).replace(/^\//, '')
     if (rel.includes('..')) return new Response('forbidden', { status: 403 })
     const file = join(recordingsRoot(), rel)
-    return net.fetch(pathToFileURL(file).toString())
+    const { existsSync, statSync, createReadStream } = await import('fs')
+    const { Readable } = await import('stream')
+    if (!existsSync(file)) return new Response('not found', { status: 404 })
+    const size = statSync(file).size
+    const mime = file.endsWith('.m4a') ? 'audio/mp4' : 'audio/wav'
+    const range = request.headers.get('range')
+    const m = range ? /bytes=(\d+)-(\d*)/.exec(range) : null
+    if (m) {
+      const start = Number(m[1])
+      const end = m[2] ? Math.min(Number(m[2]), size - 1) : size - 1
+      if (start >= size) return new Response(null, { status: 416 })
+      const stream = Readable.toWeb(createReadStream(file, { start, end })) as ReadableStream
+      return new Response(stream, {
+        status: 206,
+        headers: {
+          'Content-Range': `bytes ${start}-${end}/${size}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': String(end - start + 1),
+          'Content-Type': mime
+        }
+      })
+    }
+    const stream = Readable.toWeb(createReadStream(file)) as ReadableStream
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        'Content-Length': String(size),
+        'Accept-Ranges': 'bytes',
+        'Content-Type': mime
+      }
+    })
   })
 }
 
