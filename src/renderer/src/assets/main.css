@@ -124,6 +124,9 @@ select:focus-visible {
   overflow-y: auto;
 }
 
+/* Full-width window-drag strip along the titlebar area. Anything clickable
+   inside the top 40px MUST set -webkit-app-region: no-drag, or real mouse
+   clicks are swallowed by window dragging (synthetic test clicks are not). */
 .sidebar-drag {
   position: absolute;
   top: 0;
@@ -429,6 +432,7 @@ select:focus-visible {
   z-index: 2;
   display: flex;
   gap: 4px;
+  -webkit-app-region: no-drag;
 }
 
 .detail-body {
@@ -1056,6 +1060,7 @@ select:focus-visible {
 }
 
 .export-menu {
+  -webkit-app-region: no-drag;
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
