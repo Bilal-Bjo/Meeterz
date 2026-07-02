@@ -18,7 +18,7 @@ export async function compressChannels(dir: string, channels: Channel[]): Promis
     const m4a = join(dir, `${ch}.m4a`)
     if (!existsSync(wav)) continue
     try {
-      await execFileAsync('/usr/bin/afconvert', ['-f', 'm4af', '-d', 'aac', '-b', '64000', wav, m4a])
+      await execFileAsync('/usr/bin/afconvert', ['-f', 'm4af', '-d', 'aac', wav, m4a])
       await unlink(wav)
     } catch {
       allOk = false // keep the WAV; playback and retry still work

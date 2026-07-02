@@ -132,23 +132,35 @@ function setupAudioProtocol(): void {
     const m = range ? /^\s*bytes=(\d*)-(\d*)\s*$/.exec(range) : null
     if (m && (m[1] || m[2])) {
       const start = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]))
-      const end = m[1] && m[2] ? Math.min(Number(m[2]), size - 1) : size - 1
+      let end = m[1] && m[2] ? Math.min(Number(m[2]), size - 1) : size - 1
       if (start >= size || start > end) {
         return new Response(null, {
           status: 416,
           headers: { 'Content-Range': `bytes */${size}` }
         })
       }
-      const stream = Readable.toWeb(createReadStream(file, { start, end })) as ReadableStream
-      return new Response(stream, {
-        status: 206,
-        headers: {
-          'Content-Range': `bytes ${start}-${end}/${size}`,
-          'Accept-Ranges': 'bytes',
-          'Content-Length': String(end - start + 1),
-          'Content-Type': mime
-        }
-      })
+      // Serve a bounded, fully-buffered chunk (RFC 7233 permits a subrange;
+      // the client re-requests the rest). Streaming large bodies through
+      // Readable.toWeb can deadlock on backpressure and stall playback.
+      end = Math.min(end, start + 8 * 1024 * 1024 - 1)
+      const { open } = await import('fs/promises')
+      const fh = await open(file, 'r')
+      try {
+        const len = end - start + 1
+        const buf = Buffer.alloc(len)
+        await fh.read(buf, 0, len, start)
+        return new Response(new Uint8Array(buf), {
+          status: 206,
+          headers: {
+            'Content-Range': `bytes ${start}-${end}/${size}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': String(len),
+            'Content-Type': mime
+          }
+        })
+      } finally {
+        await fh.close()
+      }
     }
     const stream = Readable.toWeb(createReadStream(file)) as ReadableStream
     return new Response(stream, {
@@ -188,6 +200,24 @@ async function eraseMeeting(m: Meeting): Promise<void> {
 
 async function purgeExpiredTrash(): Promise<void> {
   for (const m of meetings.expired(TRASH_RETENTION_MS)) await eraseMeeting(m)
+}
+
+// Meetings recorded while AAC compression was broken are stranded as WAVs,
+// which the player cannot serve reliably. Convert them in the background.
+async function migrateWavMeetings(): Promise<void> {
+  for (const m of meetings.list()) {
+    if (m.audio_format !== 'wav' || !m.audio_dir || m.status !== 'ready') continue
+    try {
+      const channels = JSON.parse(m.channels) as Channel[]
+      if (channels.length === 0) continue
+      if (await compressChannels(m.audio_dir, channels)) {
+        meetings.update(m.id, { audio_format: 'm4a' })
+        notifyMeetingUpdated(m.id)
+      }
+    } catch {
+      /* leave as WAV; retried next launch */
+    }
+  }
 }
 
 function notifyMeetingUpdated(meetingId: number): void {
@@ -446,6 +476,7 @@ app.whenReady().then(() => {
   setupTrayAndShortcut()
   recoverStuckRecordings(runTranscription)
   purgeExpiredTrash()
+  migrateWavMeetings()
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
