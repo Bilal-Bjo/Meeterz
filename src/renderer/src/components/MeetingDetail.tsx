@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { JSX } from 'react'
 import type { Folder, Meeting, TranscriptSegment } from '../types'
 import type { CaptureSources } from '../lib/capture'
-import { formatDuration } from '../lib/format'
+import { formatDuration, formatTimestamp } from '../lib/format'
 import { TranscriptRail } from './TranscriptRail'
+import { PlayerBar, type SeekRequest, type TimelinePin } from './PlayerBar'
 import { NotesEditor } from './NotesEditor'
 import { IconExport, IconMic, IconPanelRight, IconRestore, IconSpeaker, IconTrash, IconWave } from './Icons'
 
@@ -41,9 +42,71 @@ export function MeetingDetail({
   const [title, setTitle] = useState(meeting.title)
   const [exportOpen, setExportOpen] = useState(false)
 
+  // ── Transcript + playback state shared by the rail and the player bar ──
+  const [query, setQuery] = useState('')
+  const [matchIdx, setMatchIdx] = useState(0)
+  const [playTime, setPlayTime] = useState(0)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [seekReq, setSeekReq] = useState<SeekRequest | null>(null)
+
   useEffect(() => {
     setTitle(meeting.title)
+    setQuery(transcriptSeed ?? '')
+    setMatchIdx(0)
+    setPlayTime(0)
+    setIsPlaying(false)
+    setSeekReq(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meeting.id])
+
+  const segments = useMemo<TranscriptSegment[]>(() => {
+    if (meeting.status === 'recording' && liveSegments.length > 0) return liveSegments
+    if (!meeting.transcript) return []
+    try {
+      return JSON.parse(meeting.transcript)
+    } catch {
+      return []
+    }
+  }, [meeting.transcript, meeting.status, liveSegments])
+
+  const channels = useMemo<('mic' | 'system')[]>(() => {
+    try {
+      return JSON.parse(meeting.channels ?? '[]')
+    } catch {
+      return []
+    }
+  }, [meeting.channels])
+
+  const hasAudio = meeting.status === 'ready' && !!meeting.audio_dir && channels.length > 0
+
+  const q = query.trim().toLowerCase()
+  const matches = useMemo(
+    () => (q ? segments.map((s, i) => ({ s, i })).filter((x) => x.s.text.toLowerCase().includes(q)) : []),
+    [segments, q]
+  )
+  useEffect(() => setMatchIdx(0), [q])
+
+  const currentSegIdx = matches.length > 0 ? matches[Math.min(matchIdx, matches.length - 1)].i : -1
+
+  const cycle = (dir: 1 | -1): void => {
+    if (matches.length === 0) return
+    setMatchIdx((v) => (v + dir + matches.length) % matches.length)
+  }
+
+  // Timeline pins: every search match across the whole meeting.
+  const pins = useMemo<TimelinePin[]>(
+    () =>
+      hasAudio
+        ? matches.map((m) => ({
+            time: m.s.start,
+            label: `${formatTimestamp(m.s.start)} — ${m.s.text.slice(0, 80)}`,
+            segIdx: m.i
+          }))
+        : [],
+    [matches, hasAudio]
+  )
+
+  const seekTo = (t: number): void => setSeekReq({ t, nonce: Date.now() })
 
   // Cmd+F: find in transcript (expands the rail if collapsed).
   useEffect(() => {
@@ -190,12 +253,44 @@ export function MeetingDetail({
         {!railCollapsed && (
           <TranscriptRail
             meeting={meeting}
-            liveSegments={liveSegments}
+            segments={segments}
+            isLive={meeting.status === 'recording' && liveSegments.length > 0}
+            canSeek={hasAudio}
+            query={query}
+            onQueryChange={setQuery}
+            matchCount={matches.length}
+            matchPos={Math.min(matchIdx + 1, matches.length)}
+            onCycle={cycle}
+            currentSegIdx={currentSegIdx}
+            playTime={playTime}
+            isPlaying={isPlaying}
+            onSegmentClick={(seg) => {
+              if (hasAudio && seg.source !== 'import') seekTo(seg.start)
+            }}
             onRetry={() => window.api.transcribe.retry(meeting.id)}
-            seed={transcriptSeed}
           />
         )}
       </div>
+
+      {hasAudio && (
+        <PlayerBar
+          key={meeting.id}
+          meetingId={meeting.id}
+          audioFormat={meeting.audio_format}
+          channels={channels}
+          pins={pins}
+          seekReq={seekReq}
+          onTimeChange={(t, playing) => {
+            setPlayTime(t)
+            setIsPlaying(playing)
+          }}
+          onPinClick={(pin) => {
+            const mi = matches.findIndex((m) => m.i === pin.segIdx)
+            if (mi >= 0) setMatchIdx(mi)
+            seekTo(pin.time)
+          }}
+        />
+      )}
     </main>
   )
 }

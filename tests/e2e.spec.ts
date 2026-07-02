@@ -157,12 +157,12 @@ for (const [i, c] of CASES.entries()) {
     if (i === 0) {
       // Waveform player: canvas rendered, search match shows a timeline pin,
       // clicking the pin starts playback at that moment.
-      await expect(page.locator('.wf-player canvas')).toBeVisible()
+      await expect(page.locator('.player-bar canvas')).toBeVisible()
       await page.locator('.rail-search input').fill('budget')
       await expect(page.locator('.wf-pin')).toHaveCount(1)
       await page.locator('.wf-pin').click()
       await expect
-        .poll(async () => page.locator('audio').evaluate((el: HTMLAudioElement) => el.currentTime))
+        .poll(async () => page.locator('.player-bar audio').first().evaluate((el: HTMLAudioElement) => el.currentTime))
         .toBeGreaterThan(0)
       await page.locator('.wf-play').click() // pause
       await page.locator('.rail-search input').press('Escape')
@@ -219,9 +219,10 @@ test('find-in-transcript: highlights, counts and cycles matches', async () => {
   // Self-contained: import a fresh transcript to search within.
   await page.locator('.nav-row', { hasText: 'Import transcript' }).click()
   await expect(page.locator('.rail-search')).toBeVisible({ timeout: 10_000 })
+  await page.waitForTimeout(400) // let the post-import remount settle
 
-  // "de" appears in multiple Dutch cues
   await page.locator('.rail-search input').fill('vrijdag')
+  await expect(page.locator('.rail-search input')).toHaveValue('vrijdag')
   await expect(page.locator('.segment-text mark').first()).toHaveText(/vrijdag/i)
   await expect(page.locator('.rail-search-count')).toHaveText('1/1')
   await expect(page.locator('.segment.search-current')).toContainText('deadline')
@@ -244,13 +245,17 @@ test('find-in-transcript: highlights, counts and cycles matches', async () => {
 
 test('full-text search finds transcript content', async () => {
   await page.locator('.list-search input').fill('kwartaaloverzicht')
-  await expect(page.locator('.meeting-row')).toHaveCount(1, { timeout: 5_000 })
-  await expect(page.locator('.meeting-row .row-title')).toContainText('teams-transcript')
+  // Only imported fixtures contain this word; the recordings must be filtered out.
+  await expect(page.locator('.meeting-row').first()).toContainText('teams-transcript', {
+    timeout: 5_000
+  })
+  await expect(page.locator('.meeting-row', { hasText: 'budget review' })).toHaveCount(0)
   await page.locator('.list-search input').fill('')
+  await expect(page.locator('.meeting-row', { hasText: 'Kickoff' })).toBeVisible()
 })
 
 test('copy meeting as Markdown', async () => {
-  await page.locator('.meeting-row', { hasText: 'teams-transcript' }).click()
+  await page.locator('.meeting-row', { hasText: 'teams-transcript' }).first().click()
   await page.locator('.export-wrap .icon-btn').click()
   await page.locator('.export-menu button', { hasText: 'Copy as Markdown' }).click()
   await expect(page.locator('.toast')).toContainText('Copied')
@@ -260,7 +265,7 @@ test('copy meeting as Markdown', async () => {
 })
 
 test('rename meeting via title (double-click from list)', async () => {
-  await page.locator('.meeting-row', { hasText: 'teams-transcript' }).dblclick()
+  await page.locator('.meeting-row', { hasText: 'teams-transcript' }).first().dblclick()
   await expect(page.locator('.detail-title')).toBeFocused()
   await page.locator('.detail-title').fill('Renamed Sync')
   await page.locator('.detail-title').press('Enter')
@@ -283,7 +288,7 @@ test('theme setting forces dark mode from Settings', async () => {
 test('delete → Recently Deleted → restore → delete forever', async () => {
   // Soft delete from the detail toolbar
   await page.locator('.nav-row', { hasText: 'All Meetings' }).click()
-  await page.locator('.meeting-row', { hasText: 'Renamed Sync' }).click()
+  await page.locator('.meeting-row', { hasText: 'Renamed Sync' }).first().click()
   await page.locator('.icon-btn[title="Move to Recently Deleted"]').click()
   await expect(page.locator('.toast')).toContainText('Recently Deleted')
 

@@ -1,16 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import type { Meeting, TranscriptSegment } from '../types'
 import { formatTimestamp } from '../lib/format'
 import { speakerName, speakerClass } from '../lib/speakers'
 import { IconCopy, IconMic, IconSearch, IconWave } from './Icons'
-import { WaveformPlayer, type TimelinePin } from './WaveformPlayer'
 
 interface TranscriptRailProps {
   meeting: Meeting
-  liveSegments: TranscriptSegment[]
+  segments: TranscriptSegment[]
+  isLive: boolean
+  canSeek: boolean
+  query: string
+  onQueryChange: (q: string) => void
+  matchCount: number
+  matchPos: number
+  onCycle: (dir: 1 | -1) => void
+  currentSegIdx: number
+  playTime: number
+  isPlaying: boolean
+  onSegmentClick: (seg: TranscriptSegment) => void
   onRetry: () => void
-  seed?: string
 }
 
 function escapeRegExp(s: string): string {
@@ -29,77 +38,24 @@ function Highlighted({ text, query }: { text: string; query: string }): JSX.Elem
   )
 }
 
-export function TranscriptRail({ meeting, liveSegments, onRetry, seed }: TranscriptRailProps): JSX.Element {
+export function TranscriptRail({
+  meeting,
+  segments,
+  isLive,
+  canSeek,
+  query,
+  onQueryChange,
+  matchCount,
+  matchPos,
+  onCycle,
+  currentSegIdx,
+  playTime,
+  isPlaying,
+  onSegmentClick,
+  onRetry
+}: TranscriptRailProps): JSX.Element {
   const [copied, setCopied] = useState(false)
-  const [query, setQuery] = useState('')
-  const [matchIdx, setMatchIdx] = useState(0)
-  const [playing, setPlaying] = useState<{ source: string; time: number } | null>(null)
-  const [peaks, setPeaks] = useState<number[] | null>(null)
-  const audioRef = useRef<HTMLAudioElement>(null)
-  const [playerSource, setPlayerSource] = useState<'mic' | 'system' | null>(null)
-
-  const segments = useMemo<TranscriptSegment[]>(() => {
-    if (meeting.status === 'recording' && liveSegments.length > 0) return liveSegments
-    if (!meeting.transcript) return []
-    try {
-      return JSON.parse(meeting.transcript)
-    } catch {
-      return []
-    }
-  }, [meeting.transcript, meeting.status, liveSegments])
-
-  const channels = useMemo<string[]>(() => {
-    try {
-      return JSON.parse(meeting.channels ?? '[]')
-    } catch {
-      return []
-    }
-  }, [meeting.channels])
-
-  const hasAudio = meeting.audio_dir && meeting.status === 'ready' && channels.length > 0
-  const isLive = meeting.status === 'recording' && liveSegments.length > 0
-
-  useEffect(() => {
-    setPlayerSource(null)
-    setPlaying(null)
-    setPeaks(null)
-    // A meeting opened from an active library search starts pre-filtered.
-    setQuery(seed ?? '')
-    setMatchIdx(0)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [meeting.id])
-
-  // Default the player to the first recorded channel.
-  useEffect(() => {
-    if (hasAudio && !playerSource) {
-      setPlayerSource((channels[0] as 'mic' | 'system') ?? null)
-    }
-  }, [hasAudio, channels, playerSource])
-
-  // Waveform peaks are computed once in the main process and cached.
-  useEffect(() => {
-    if (!hasAudio || !playerSource) return
-    let cancelled = false
-    setPeaks(null)
-    window.api.audio
-      .peaks(meeting.id, playerSource)
-      .then((p) => !cancelled && setPeaks(p))
-      .catch(() => !cancelled && setPeaks([]))
-    return () => {
-      cancelled = true
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [meeting.id, playerSource, hasAudio])
-
   const q = query.trim().toLowerCase()
-  const matches = useMemo(
-    () => (q ? segments.map((s, i) => ({ s, i })).filter((x) => x.s.text.toLowerCase().includes(q)) : []),
-    [segments, q]
-  )
-
-  useEffect(() => setMatchIdx(0), [q])
-
-  const currentSegIdx = matches.length > 0 ? matches[Math.min(matchIdx, matches.length - 1)].i : -1
 
   useEffect(() => {
     if (currentSegIdx >= 0) {
@@ -109,50 +65,8 @@ export function TranscriptRail({ meeting, liveSegments, onRetry, seed }: Transcr
     }
   }, [currentSegIdx])
 
-  const cycle = (dir: 1 | -1): void => {
-    if (matches.length === 0) return
-    setMatchIdx((v) => (v + dir + matches.length) % matches.length)
-  }
-
-  // Timeline pins: one per search match in the channel being played.
-  const pins = useMemo<TimelinePin[]>(
-    () =>
-      matches
-        .filter((m) => m.s.source === playerSource)
-        .map((m) => ({
-          time: m.s.start,
-          label: `${formatTimestamp(m.s.start)} — ${m.s.text.slice(0, 80)}`,
-          segIdx: m.i
-        })),
-    [matches, playerSource]
-  )
-
-  const audioSrc = (source: string): string =>
-    `meeterz-audio://recordings/${meeting.id}/${source}.${meeting.audio_format}`
-
-  const seekTo = (seg: TranscriptSegment): void => {
-    if (!hasAudio || seg.source === 'import') return
-    const source = seg.source as 'mic' | 'system'
-    if (!channels.includes(source)) return
-    setPlayerSource(source)
-    // src change needs a tick before seeking
-    requestAnimationFrame(() => {
-      const el = audioRef.current
-      if (!el) return
-      const doSeek = (): void => {
-        el.currentTime = seg.start
-        el.play().catch(() => {})
-      }
-      if (el.readyState >= 1) doSeek()
-      else el.addEventListener('loadedmetadata', doSeek, { once: true })
-    })
-  }
-
   const isActive = (seg: TranscriptSegment): boolean =>
-    playing !== null &&
-    playing.source === seg.source &&
-    playing.time >= seg.start &&
-    playing.time < seg.end
+    isPlaying && playTime >= seg.start && playTime < seg.end
 
   const copyAll = (): void => {
     const text = segments
@@ -184,11 +98,11 @@ export function TranscriptRail({ meeting, liveSegments, onRetry, seed }: Transcr
             placeholder="Find in transcript"
             value={query}
             spellCheck={false}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => onQueryChange(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') cycle(e.shiftKey ? -1 : 1)
+              if (e.key === 'Enter') onCycle(e.shiftKey ? -1 : 1)
               if (e.key === 'Escape') {
-                setQuery('')
+                onQueryChange('')
                 ;(e.target as HTMLInputElement).blur()
               }
             }}
@@ -196,41 +110,17 @@ export function TranscriptRail({ meeting, liveSegments, onRetry, seed }: Transcr
           {q && (
             <span className="rail-search-meta">
               <span className="rail-search-count">
-                {matches.length === 0 ? '0' : `${Math.min(matchIdx + 1, matches.length)}/${matches.length}`}
+                {matchCount === 0 ? '0' : `${matchPos}/${matchCount}`}
               </span>
-              <button className="icon-btn" title="Previous match (⇧↩)" onClick={() => cycle(-1)}>
+              <button className="icon-btn" title="Previous match (⇧↩)" onClick={() => onCycle(-1)}>
                 ↑
               </button>
-              <button className="icon-btn" title="Next match (↩)" onClick={() => cycle(1)}>
+              <button className="icon-btn" title="Next match (↩)" onClick={() => onCycle(1)}>
                 ↓
               </button>
             </span>
           )}
         </div>
-      )}
-
-      {hasAudio && playerSource && (
-        <WaveformPlayer
-          key={`${meeting.id}-${playerSource}`}
-          audioRef={audioRef}
-          src={audioSrc(playerSource)}
-          channels={channels}
-          channel={playerSource}
-          onChannelChange={(ch) => {
-            audioRef.current?.pause()
-            setPlaying(null)
-            setPlayerSource(ch)
-          }}
-          peaks={peaks}
-          pins={pins}
-          time={playing?.source === playerSource ? playing.time : 0}
-          onTimeUpdate={(t) => setPlaying({ source: playerSource, time: t })}
-          onPinClick={(pin) => {
-            const mi = matches.findIndex((m) => m.i === pin.segIdx)
-            if (mi >= 0) setMatchIdx(mi)
-            seekTo(segments[pin.segIdx])
-          }}
-        />
       )}
 
       <div className="rail-scroll">
@@ -262,9 +152,9 @@ export function TranscriptRail({ meeting, liveSegments, onRetry, seed }: Transcr
           <div
             key={`${s.source}-${s.start}-${i}`}
             data-seg-idx={i}
-            className={`segment ${isActive(s) ? 'active' : ''} ${hasAudio && s.source !== 'import' ? 'seekable' : ''} ${i === currentSegIdx ? 'search-current' : ''}`}
+            className={`segment ${isActive(s) ? 'active' : ''} ${canSeek && s.source !== 'import' ? 'seekable' : ''} ${i === currentSegIdx ? 'search-current' : ''}`}
             style={{ animationDelay: `${Math.min(i * 24, 400)}ms` }}
-            onClick={() => seekTo(s)}
+            onClick={() => onSegmentClick(s)}
           >
             <div className="segment-head">
               <span className={`speaker-chip ${speakerClass(s)}`}>{speakerName(s)}</span>
