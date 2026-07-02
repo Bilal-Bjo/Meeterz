@@ -10,8 +10,8 @@
   --ink: #1d1d1f;
   --ink-2: #58585e;
   --ink-3: #86868b;
-  --accent: #0a7aff;
-  --accent-soft: rgba(10, 122, 255, 0.1);
+  --accent: #575af5;
+  --accent-soft: rgba(87, 90, 245, 0.1);
   --rec: #ff3b30;
   --rec-soft: rgba(255, 59, 48, 0.08);
   --ok: #248a3d;
@@ -25,7 +25,7 @@
   --icon-circle: rgba(0, 0, 0, 0.05);
   --scroll: rgba(0, 0, 0, 0.18);
   --scroll-hover: rgba(0, 0, 0, 0.3);
-  --focus-ring: rgba(10, 122, 255, 0.45);
+  --focus-ring: rgba(87, 90, 245, 0.45);
 
   --r-control: 6px;
   --r-card: 10px;
@@ -45,8 +45,8 @@
     --ink: #f5f5f7;
     --ink-2: #b8b8bd;
     --ink-3: #8e8e93;
-    --accent: #0a84ff;
-    --accent-soft: rgba(10, 132, 255, 0.18);
+    --accent: #7a7dff;
+    --accent-soft: rgba(122, 125, 255, 0.2);
     --rec: #ff453a;
     --rec-soft: rgba(255, 69, 58, 0.16);
     --ok: #30d158;
@@ -60,7 +60,7 @@
     --icon-circle: rgba(255, 255, 255, 0.08);
     --scroll: rgba(255, 255, 255, 0.22);
     --scroll-hover: rgba(255, 255, 255, 0.36);
-    --focus-ring: rgba(10, 132, 255, 0.55);
+    --focus-ring: rgba(122, 125, 255, 0.55);
     --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
     --shadow-2: 0 10px 30px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
   }

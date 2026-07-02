@@ -16,9 +16,12 @@ import {
   nativeTheme
 } from 'electron'
 import { join } from 'path'
+import { readFileSync } from 'fs'
 import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import trayGlyph from '../../resources/trayTemplate.png?asset'
+import trayGlyph2x from '../../resources/trayTemplate@2x.png?asset'
 import { initDb, folders, meetings, settings, type Meeting } from './db'
 import {
   startSession,
@@ -361,7 +364,11 @@ function rebuildTrayMenu(): void {
 }
 
 function setupTrayAndShortcut(): void {
-  const trayIcon = nativeImage.createFromPath(icon).resize({ width: 18, height: 18 })
+  // Monochrome template glyph: macOS recolors it for light/dark menu bars.
+  const trayIcon = nativeImage.createEmpty()
+  trayIcon.addRepresentation({ scaleFactor: 1, buffer: readFileSync(trayGlyph) })
+  trayIcon.addRepresentation({ scaleFactor: 2, buffer: readFileSync(trayGlyph2x) })
+  trayIcon.setTemplateImage(true)
   tray = new Tray(trayIcon)
   rebuildTrayMenu()
 
