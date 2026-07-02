@@ -21,6 +21,10 @@ const api = {
       ipcRenderer.invoke('meetings:create', title, folderId),
     update: (id: number, fields: object) => ipcRenderer.invoke('meetings:update', id, fields),
     remove: (id: number) => ipcRenderer.invoke('meetings:remove', id),
+    listDeleted: () => ipcRenderer.invoke('meetings:listDeleted'),
+    restore: (id: number) => ipcRenderer.invoke('meetings:restore', id),
+    deleteForever: (id: number) => ipcRenderer.invoke('meetings:deleteForever', id),
+    emptyTrash: () => ipcRenderer.invoke('meetings:emptyTrash'),
     search: (query: string) => ipcRenderer.invoke('meetings:search', query)
   },
   recording: {

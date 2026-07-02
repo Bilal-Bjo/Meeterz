@@ -5,9 +5,9 @@ import { IconFolder, IconGear, IconImport, IconPlus, IconTray, IconTrash, IconWa
 
 interface SidebarProps {
   folders: Folder[]
-  selectedFolderId: number | 'all'
-  meetingCounts: Map<number | 'all', number>
-  onSelectFolder: (id: number | 'all') => void
+  selectedFolderId: number | 'all' | 'trash'
+  meetingCounts: Map<number | 'all' | 'trash', number>
+  onSelectFolder: (id: number | 'all' | 'trash') => void
   onCreateFolder: (name: string) => void
   onRenameFolder: (id: number, name: string) => void
   onDeleteFolder: (id: number) => void
@@ -155,6 +155,16 @@ export function Sidebar({
       </div>
 
       <div className="sidebar-footer">
+        {(meetingCounts.get('trash') ?? 0) > 0 && (
+          <button
+            className={`nav-row ${selectedFolderId === 'trash' ? 'selected' : ''}`}
+            onClick={() => onSelectFolder('trash')}
+          >
+            <IconTrash size={15} />
+            <span>Recently Deleted</span>
+            <span className="nav-count">{meetingCounts.get('trash')}</span>
+          </button>
+        )}
         <button className="nav-row" onClick={onImport} title="Import a Teams .vtt transcript">
           <IconImport size={15} />
           <span>Import transcript…</span>

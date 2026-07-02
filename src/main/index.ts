@@ -19,7 +19,7 @@ import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { initDb, folders, meetings, settings } from './db'
+import { initDb, folders, meetings, settings, type Meeting } from './db'
 import {
   startSession,
   appendAudio,
@@ -118,6 +118,32 @@ function setupAudioProtocol(): void {
   })
 }
 
+const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+
+async function confirmDialog(message: string, detail: string, action: string): Promise<boolean> {
+  if (process.env.MEETERZ_SKIP_CONFIRM === '1') return true
+  const { response } = await dialog.showMessageBox(mainWindow!, {
+    type: 'warning',
+    buttons: [action, 'Cancel'],
+    defaultId: 1,
+    message,
+    detail
+  })
+  return response === 0
+}
+
+async function eraseMeeting(m: Meeting): Promise<void> {
+  if (m.audio_dir) {
+    const { rm } = await import('fs/promises')
+    await rm(m.audio_dir, { recursive: true, force: true }).catch(() => {})
+  }
+  meetings.remove(m.id)
+}
+
+async function purgeExpiredTrash(): Promise<void> {
+  for (const m of meetings.expired(TRASH_RETENTION_MS)) await eraseMeeting(m)
+}
+
 function notifyMeetingUpdated(meetingId: number): void {
   send('meeting:updated', meetings.get(meetingId))
 }
@@ -175,19 +201,29 @@ function registerIpc(): void {
     meetings.update(id, fields)
     return meetings.get(id)
   })
-  ipcMain.handle('meetings:remove', async (_e, id: number) => {
+  // Reversible: meetings land in Recently Deleted and are purged after 30 days.
+  ipcMain.handle('meetings:remove', (_e, id: number) => {
+    meetings.softDelete(id)
+    return true
+  })
+  ipcMain.handle('meetings:listDeleted', () => meetings.listDeleted())
+  ipcMain.handle('meetings:restore', (_e, id: number) => meetings.restore(id))
+  ipcMain.handle('meetings:deleteForever', async (_e, id: number) => {
     const m = meetings.get(id)
     if (!m) return true
-    const { response } = await dialog.showMessageBox(mainWindow!, {
-      type: 'warning',
-      buttons: ['Delete Meeting', 'Cancel'],
-      defaultId: 1,
-      message: `Delete “${m.title}”?`,
-      detail: 'Notes and transcript are removed. Audio is moved to the Trash.'
-    })
-    if (response !== 0) return false
-    if (m.audio_dir) await shell.trashItem(m.audio_dir).catch(() => {})
-    meetings.remove(id)
+    if (!(await confirmDialog(`Permanently delete “${m.title}”?`, 'Notes, transcript and audio are erased. This cannot be undone.', 'Delete Forever'))) {
+      return false
+    }
+    await eraseMeeting(m)
+    return true
+  })
+  ipcMain.handle('meetings:emptyTrash', async () => {
+    const deleted = meetings.listDeleted()
+    if (deleted.length === 0) return true
+    if (!(await confirmDialog(`Permanently delete ${deleted.length} meeting${deleted.length > 1 ? 's' : ''}?`, 'Everything in Recently Deleted is erased. This cannot be undone.', 'Delete Forever'))) {
+      return false
+    }
+    for (const m of deleted) await eraseMeeting(m)
     return true
   })
   ipcMain.handle('meetings:search', (_e, query: string) => meetings.search(query))
@@ -353,6 +389,7 @@ app.whenReady().then(() => {
   createWindow()
   setupTrayAndShortcut()
   recoverStuckRecordings(runTranscription)
+  purgeExpiredTrash()
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

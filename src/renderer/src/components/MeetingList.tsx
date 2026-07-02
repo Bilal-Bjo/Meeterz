@@ -8,6 +8,8 @@ interface MeetingListProps {
   meetings: Meeting[]
   selectedId: number | null
   onSelect: (id: number) => void
+  isTrash: boolean
+  onEmptyTrash: () => void
 }
 
 function snippet(m: Meeting): string {
@@ -31,7 +33,7 @@ function StatusDot({ status }: { status: Meeting['status'] }): JSX.Element | nul
   return null
 }
 
-export function MeetingList({ meetings, selectedId, onSelect }: MeetingListProps): JSX.Element {
+export function MeetingList({ meetings, selectedId, onSelect, isTrash, onEmptyTrash }: MeetingListProps): JSX.Element {
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<Map<number, string> | null>(null)
 
@@ -80,6 +82,17 @@ export function MeetingList({ meetings, selectedId, onSelect }: MeetingListProps
           spellCheck={false}
         />
       </div>
+
+      {isTrash && (
+        <div className="trash-banner">
+          <span>Deleted after 30 days</span>
+          {meetings.length > 0 && (
+            <button className="trash-empty-btn" onClick={onEmptyTrash}>
+              Empty
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="list-scroll">
         {groups.length === 0 && (

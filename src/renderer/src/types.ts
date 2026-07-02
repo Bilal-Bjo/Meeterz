@@ -29,6 +29,7 @@ export interface Meeting {
   error_msg: string | null
   audio_format: 'wav' | 'm4a'
   origin: 'recording' | 'import'
+  deleted_at: number | null
 }
 
 export interface SearchHit {
@@ -59,6 +60,10 @@ export interface MeeterzApi {
     create: (title: string, folderId: number | null) => Promise<Meeting>
     update: (id: number, fields: Partial<Meeting>) => Promise<Meeting>
     remove: (id: number) => Promise<boolean>
+    listDeleted: () => Promise<Meeting[]>
+    restore: (id: number) => Promise<void>
+    deleteForever: (id: number) => Promise<boolean>
+    emptyTrash: () => Promise<boolean>
     search: (query: string) => Promise<SearchHit[]>
   }
   recording: {

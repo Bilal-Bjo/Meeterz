@@ -5,7 +5,7 @@ import type { CaptureSources } from '../lib/capture'
 import { formatDuration } from '../lib/format'
 import { TranscriptRail } from './TranscriptRail'
 import { NotesEditor } from './NotesEditor'
-import { IconExport, IconMic, IconSpeaker, IconTrash, IconWave } from './Icons'
+import { IconExport, IconMic, IconPanelRight, IconRestore, IconSpeaker, IconTrash, IconWave } from './Icons'
 
 interface MeetingDetailProps {
   meeting: Meeting
@@ -14,8 +14,12 @@ interface MeetingDetailProps {
   liveSegments: TranscriptSegment[]
   onUpdate: (fields: Partial<Meeting>) => void
   onDelete: () => void
+  onRestore: () => void
+  onDeleteForever: () => void
   onStartRecording: (sources: CaptureSources) => void
   onToast: (text: string) => void
+  railCollapsed: boolean
+  onToggleRail: () => void
 }
 
 export function MeetingDetail({
@@ -25,8 +29,12 @@ export function MeetingDetail({
   liveSegments,
   onUpdate,
   onDelete,
+  onRestore,
+  onDeleteForever,
   onStartRecording,
-  onToast
+  onToast,
+  railCollapsed,
+  onToggleRail
 }: MeetingDetailProps): JSX.Element {
   const [title, setTitle] = useState(meeting.title)
   const [exportOpen, setExportOpen] = useState(false)
@@ -36,8 +44,16 @@ export function MeetingDetail({
   }, [meeting.id])
 
   const createdAt = new Date(meeting.created_at)
+  const isDeleted = meeting.deleted_at != null
+  const purgeDays = isDeleted
+    ? Math.max(0, Math.ceil(30 - (Date.now() - meeting.deleted_at!) / 86_400_000))
+    : 0
   const canRecord =
-    meeting.status === 'idle' && !meeting.audio_dir && meeting.origin !== 'import' && !recordingActive
+    meeting.status === 'idle' &&
+    !meeting.audio_dir &&
+    meeting.origin !== 'import' &&
+    !recordingActive &&
+    !isDeleted
 
   const doExport = async (kind: 'md' | 'pdf' | 'copy'): Promise<void> => {
     setExportOpen(false)
@@ -53,6 +69,16 @@ export function MeetingDetail({
   return (
     <main className="detail">
       <div className="detail-toolbar">
+        {isDeleted ? (
+          <>
+            <button className="icon-btn" title="Restore meeting" onClick={onRestore}>
+              <IconRestore size={15} />
+            </button>
+            <button className="icon-btn" title="Delete forever" onClick={onDeleteForever}>
+              <IconTrash size={15} />
+            </button>
+          </>
+        ) : (
         <div className="export-wrap">
           <button className="icon-btn" title="Export meeting" onClick={() => setExportOpen(!exportOpen)}>
             <IconExport size={15} />
@@ -65,10 +91,32 @@ export function MeetingDetail({
             </div>
           )}
         </div>
-        <button className="icon-btn" title="Delete meeting" onClick={onDelete}>
-          <IconTrash size={15} />
+        )}
+        {!isDeleted && (
+          <button className="icon-btn" title="Move to Recently Deleted" onClick={onDelete}>
+            <IconTrash size={15} />
+          </button>
+        )}
+        <button
+          className="icon-btn"
+          title={railCollapsed ? 'Show transcript' : 'Hide transcript'}
+          onClick={onToggleRail}
+        >
+          <IconPanelRight size={15} />
         </button>
       </div>
+
+      {isDeleted && (
+        <div className="deleted-banner">
+          <span>
+            This meeting is in Recently Deleted — it will be permanently erased in {purgeDays}{' '}
+            day{purgeDays === 1 ? '' : 's'}.
+          </span>
+          <button className="record-btn small" onClick={onRestore}>
+            Restore
+          </button>
+        </div>
+      )}
 
       <div className="detail-body">
         <div className="notes-column">
@@ -122,11 +170,13 @@ export function MeetingDetail({
           />
         </div>
 
-        <TranscriptRail
-          meeting={meeting}
-          liveSegments={liveSegments}
-          onRetry={() => window.api.transcribe.retry(meeting.id)}
-        />
+        {!railCollapsed && (
+          <TranscriptRail
+            meeting={meeting}
+            liveSegments={liveSegments}
+            onRetry={() => window.api.transcribe.retry(meeting.id)}
+          />
+        )}
       </div>
     </main>
   )

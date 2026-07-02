@@ -31,6 +31,7 @@ export interface Meeting {
   error_msg: string | null
   audio_format: 'wav' | 'm4a'
   origin: 'recording' | 'import'
+  deleted_at: number | null
 }
 
 export interface SearchHit {
@@ -85,7 +86,8 @@ function migrate(): void {
     `channels TEXT NOT NULL DEFAULT '[]'`,
     `error_msg TEXT`,
     `audio_format TEXT NOT NULL DEFAULT 'wav'`,
-    `origin TEXT NOT NULL DEFAULT 'recording'`
+    `origin TEXT NOT NULL DEFAULT 'recording'`,
+    `deleted_at INTEGER`
   ]) {
     try {
       db.exec(`ALTER TABLE meetings ADD COLUMN ${col}`)
@@ -167,7 +169,25 @@ export const folders = {
 
 export const meetings = {
   list(): Meeting[] {
-    return db.prepare('SELECT * FROM meetings ORDER BY created_at DESC').all() as Meeting[]
+    return db
+      .prepare('SELECT * FROM meetings WHERE deleted_at IS NULL ORDER BY created_at DESC')
+      .all() as Meeting[]
+  },
+  listDeleted(): Meeting[] {
+    return db
+      .prepare('SELECT * FROM meetings WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC')
+      .all() as Meeting[]
+  },
+  softDelete(id: number): void {
+    db.prepare('UPDATE meetings SET deleted_at = ? WHERE id = ?').run(Date.now(), id)
+  },
+  restore(id: number): void {
+    db.prepare('UPDATE meetings SET deleted_at = NULL WHERE id = ?').run(id)
+  },
+  expired(maxAgeMs: number): Meeting[] {
+    return db
+      .prepare('SELECT * FROM meetings WHERE deleted_at IS NOT NULL AND deleted_at < ?')
+      .all(Date.now() - maxAgeMs) as Meeting[]
   },
   get(id: number): Meeting | undefined {
     return db.prepare('SELECT * FROM meetings WHERE id = ?').get(id) as Meeting | undefined

@@ -1344,6 +1344,70 @@ select:focus-visible {
   text-decoration: line-through;
 }
 
+/* ── Panel toggles + Recently Deleted ────────────────────────────────── */
+.panel-toggle {
+  position: fixed;
+  top: 13px;
+  left: 84px;
+  z-index: 15;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 27px;
+  height: 27px;
+  border-radius: 7px;
+  color: var(--ink-2);
+  -webkit-app-region: no-drag;
+}
+
+.panel-toggle:hover {
+  background: var(--hover-strong);
+  color: var(--ink);
+}
+
+.panel-toggle.left.collapsed {
+  left: 84px;
+}
+
+.trash-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 12px 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--rec-soft);
+  font-size: 12px;
+  color: var(--rec);
+  flex-shrink: 0;
+}
+
+.trash-empty-btn {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rec);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.deleted-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 44px 40px 0;
+  padding: 10px 14px;
+  border-radius: var(--r-card);
+  background: var(--rec-soft);
+  border: 1px solid rgba(255, 59, 48, 0.25);
+  font-size: 12.5px;
+  animation: rise 240ms var(--ease-spring);
+}
+
+.deleted-banner + .detail-body .notes-column {
+  padding-top: 20px;
+}
+
 /* ── Responsive (narrow windows) ─────────────────────────────────────── */
 @media (max-width: 1280px) {
   .meeting-list {

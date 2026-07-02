@@ -8,7 +8,7 @@ import { MeetingList } from './components/MeetingList'
 import { MeetingDetail } from './components/MeetingDetail'
 import { RecordingHUD } from './components/RecordingHUD'
 import { SettingsModal } from './components/SettingsModal'
-import { IconWave } from './components/Icons'
+import { IconPanelLeft, IconWave } from './components/Icons'
 
 interface RecordingState {
   meetingId: number
@@ -19,7 +19,14 @@ interface RecordingState {
 function App(): JSX.Element {
   const [foldersList, setFoldersList] = useState<Folder[]>([])
   const [meetingsList, setMeetingsList] = useState<Meeting[]>([])
-  const [selectedFolderId, setSelectedFolderId] = useState<number | 'all'>('all')
+  const [deletedList, setDeletedList] = useState<Meeting[]>([])
+  const [selectedFolderId, setSelectedFolderId] = useState<number | 'all' | 'trash'>('all')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    localStorage.getItem('meeterz.sidebarCollapsed') === '1'
+  )
+  const [railCollapsed, setRailCollapsed] = useState(
+    localStorage.getItem('meeterz.railCollapsed') === '1'
+  )
   const [selectedMeetingId, setSelectedMeetingId] = useState<number | null>(null)
   const [recording, setRecording] = useState<RecordingState | null>(null)
   const [liveSegments, setLiveSegments] = useState<TranscriptSegment[]>([])
@@ -35,10 +42,29 @@ function App(): JSX.Element {
   }, [])
 
   const refresh = useCallback(async () => {
-    const [f, m] = await Promise.all([window.api.folders.list(), window.api.meetings.list()])
+    const [f, m, d] = await Promise.all([
+      window.api.folders.list(),
+      window.api.meetings.list(),
+      window.api.meetings.listDeleted()
+    ])
     setFoldersList(f)
     setMeetingsList(m)
+    setDeletedList(d)
   }, [])
+
+  const toggleSidebar = (): void => {
+    setSidebarCollapsed((v) => {
+      localStorage.setItem('meeterz.sidebarCollapsed', v ? '0' : '1')
+      return !v
+    })
+  }
+
+  const toggleRail = (): void => {
+    setRailCollapsed((v) => {
+      localStorage.setItem('meeterz.railCollapsed', v ? '0' : '1')
+      return !v
+    })
+  }
 
   useEffect(() => {
     refresh()
@@ -54,27 +80,29 @@ function App(): JSX.Element {
     }
   }, [refresh])
 
-  const visibleMeetings = useMemo(
-    () =>
-      selectedFolderId === 'all'
-        ? meetingsList
-        : meetingsList.filter((m) => m.folder_id === selectedFolderId),
-    [meetingsList, selectedFolderId]
-  )
+  const visibleMeetings = useMemo(() => {
+    if (selectedFolderId === 'trash') return deletedList
+    if (selectedFolderId === 'all') return meetingsList
+    return meetingsList.filter((m) => m.folder_id === selectedFolderId)
+  }, [meetingsList, deletedList, selectedFolderId])
 
-  const selectedMeeting = meetingsList.find((m) => m.id === selectedMeetingId) ?? null
+  const selectedMeeting =
+    meetingsList.find((m) => m.id === selectedMeetingId) ??
+    deletedList.find((m) => m.id === selectedMeetingId) ??
+    null
 
   const meetingCounts = useMemo(() => {
-    const counts = new Map<number | 'all', number>()
+    const counts = new Map<number | 'all' | 'trash', number>()
     counts.set('all', meetingsList.length)
     for (const m of meetingsList) {
       if (m.folder_id != null) counts.set(m.folder_id, (counts.get(m.folder_id) ?? 0) + 1)
     }
+    counts.set('trash', deletedList.length)
     return counts
-  }, [meetingsList])
+  }, [meetingsList, deletedList])
 
   const newMeeting = useCallback(async (): Promise<Meeting> => {
-    const folderId = selectedFolderId === 'all' ? null : selectedFolderId
+    const folderId = typeof selectedFolderId === 'number' ? selectedFolderId : null
     const meeting = await window.api.meetings.create(defaultMeetingTitle(), folderId)
     await refresh()
     setSelectedMeetingId(meeting.id)
@@ -87,10 +115,33 @@ function App(): JSX.Element {
   }
 
   const deleteMeeting = async (id: number): Promise<void> => {
-    const deleted = await window.api.meetings.remove(id)
-    if (!deleted) return
+    await window.api.meetings.remove(id)
     if (selectedMeetingId === id) setSelectedMeetingId(null)
     await refresh()
+    showToast('Moved to Recently Deleted.')
+  }
+
+  const restoreMeeting = async (id: number): Promise<void> => {
+    await window.api.meetings.restore(id)
+    await refresh()
+    setSelectedFolderId('all')
+    setSelectedMeetingId(id)
+    showToast('Meeting restored.')
+  }
+
+  const deleteForever = async (id: number): Promise<void> => {
+    const done = await window.api.meetings.deleteForever(id)
+    if (!done) return
+    if (selectedMeetingId === id) setSelectedMeetingId(null)
+    await refresh()
+  }
+
+  const emptyTrash = async (): Promise<void> => {
+    if (await window.api.meetings.emptyTrash()) {
+      setSelectedMeetingId(null)
+      setSelectedFolderId('all')
+      await refresh()
+    }
   }
 
   const startRecording = useCallback(
@@ -167,6 +218,15 @@ function App(): JSX.Element {
 
   return (
     <div className="app">
+      <button
+        className={`panel-toggle left ${sidebarCollapsed ? 'collapsed' : ''}`}
+        title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+        onClick={toggleSidebar}
+      >
+        <IconPanelLeft size={16} />
+      </button>
+
+      {!sidebarCollapsed && (
       <Sidebar
         folders={foldersList}
         selectedFolderId={selectedFolderId}
@@ -197,11 +257,14 @@ function App(): JSX.Element {
         onOpenSettings={() => setSettingsOpen(true)}
         recording={recording !== null}
       />
+      )}
 
       <MeetingList
         meetings={visibleMeetings}
         selectedId={selectedMeetingId}
         onSelect={setSelectedMeetingId}
+        isTrash={selectedFolderId === 'trash'}
+        onEmptyTrash={emptyTrash}
       />
 
       {selectedMeeting ? (
@@ -213,8 +276,12 @@ function App(): JSX.Element {
           liveSegments={recording?.meetingId === selectedMeeting.id ? liveSegments : []}
           onUpdate={(fields) => updateMeeting(selectedMeeting.id, fields)}
           onDelete={() => deleteMeeting(selectedMeeting.id)}
+          onRestore={() => restoreMeeting(selectedMeeting.id)}
+          onDeleteForever={() => deleteForever(selectedMeeting.id)}
           onStartRecording={(sources) => startRecording(selectedMeeting.id, sources)}
           onToast={showToast}
+          railCollapsed={railCollapsed}
+          onToggleRail={toggleRail}
         />
       ) : (
         <main className="detail detail-empty">

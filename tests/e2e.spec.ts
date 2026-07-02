@@ -60,7 +60,8 @@ test.beforeAll(async () => {
       MEETERZ_USERDATA: userDataDir,
       // Small windows so the mixed-language test re-detects language quickly.
       MEETERZ_CHUNK_SEC: '6',
-      MEETERZ_IMPORT_FILE: join(__dirname, 'fixtures', 'teams-transcript.vtt')
+      MEETERZ_IMPORT_FILE: join(__dirname, 'fixtures', 'teams-transcript.vtt'),
+      MEETERZ_SKIP_CONFIRM: '1'
     }
   })
   page = await app.firstWindow()
@@ -232,6 +233,52 @@ test('theme setting forces dark mode from Settings', async () => {
   expect(bg).toBe('rgb(28, 28, 30)')
   await page.locator('.theme-row .toggle-pill', { hasText: 'System' }).click()
   await page.locator('.modal .record-btn', { hasText: 'Done' }).click()
+})
+
+test('delete → Recently Deleted → restore → delete forever', async () => {
+  // Soft delete from the detail toolbar
+  await page.locator('.nav-row', { hasText: 'All Meetings' }).click()
+  await page.locator('.meeting-row', { hasText: 'Renamed Sync' }).click()
+  await page.locator('.icon-btn[title="Move to Recently Deleted"]').click()
+  await expect(page.locator('.toast')).toContainText('Recently Deleted')
+
+  // Gone from All Meetings, present in Recently Deleted
+  await expect(page.locator('.meeting-row', { hasText: 'Renamed Sync' })).toHaveCount(0)
+  await page.locator('.nav-row', { hasText: 'Recently Deleted' }).click()
+  await expect(page.locator('.trash-banner')).toBeVisible()
+  await page.locator('.meeting-row', { hasText: 'Renamed Sync' }).click()
+  await expect(page.locator('.deleted-banner')).toContainText('permanently erased in 30 days')
+
+  // Restore brings it back
+  await page.locator('.deleted-banner .record-btn', { hasText: 'Restore' }).click()
+  await expect(page.locator('.toast')).toContainText('restored')
+  await expect(page.locator('.meeting-row', { hasText: 'Renamed Sync' })).toBeVisible()
+
+  // Delete again, then delete forever (confirm bypassed via env)
+  await page.locator('.meeting-row', { hasText: 'Renamed Sync' }).click()
+  await page.locator('.icon-btn[title="Move to Recently Deleted"]').click()
+  await page.locator('.nav-row', { hasText: 'Recently Deleted' }).click()
+  await page.locator('.meeting-row', { hasText: 'Renamed Sync' }).click()
+  await page.locator('.icon-btn[title="Delete forever"]').click()
+  await expect(page.locator('.meeting-row', { hasText: 'Renamed Sync' })).toHaveCount(0)
+  await page.locator('.nav-row', { hasText: 'All Meetings' }).click()
+})
+
+test('sidebar and transcript rail collapse and restore', async () => {
+  await page.locator('.meeting-row').first().click()
+  await expect(page.locator('.transcript-rail')).toBeVisible()
+
+  await page.locator('.panel-toggle.left').click()
+  await expect(page.locator('.sidebar')).toHaveCount(0)
+
+  await page.locator('.icon-btn[title="Hide transcript"]').click()
+  await expect(page.locator('.transcript-rail')).toHaveCount(0)
+  await page.screenshot({ path: 'tests/screenshots/09-collapsed.png' })
+
+  await page.locator('.icon-btn[title="Show transcript"]').click()
+  await expect(page.locator('.transcript-rail')).toBeVisible()
+  await page.locator('.panel-toggle.left').click()
+  await expect(page.locator('.sidebar')).toBeVisible()
 })
 
 test('dark mode renders with readable tokens', async () => {
