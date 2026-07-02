@@ -6,7 +6,7 @@ import { formatDuration, formatTimestamp } from '../lib/format'
 import { TranscriptRail } from './TranscriptRail'
 import { PlayerBar, type SeekRequest, type TimelinePin } from './PlayerBar'
 import { NotesEditor } from './NotesEditor'
-import { IconExport, IconMic, IconPanelRight, IconRestore, IconSpeaker, IconTrash, IconWave } from './Icons'
+import { IconExport, IconMic, IconPanelRight, IconRefresh, IconRestore, IconSpeaker, IconTrash, IconWave } from './Icons'
 
 interface MeetingDetailProps {
   meeting: Meeting
@@ -171,6 +171,18 @@ export function MeetingDetail({
             </div>
           )}
         </div>
+        )}
+        {!isDeleted && hasAudio && meeting.origin !== 'import' && (
+          <button
+            className="icon-btn"
+            title="Re-transcribe (re-runs on-device with the latest noise filtering)"
+            onClick={() => {
+              onToast('Re-transcribing on-device…')
+              window.api.transcribe.retry(meeting.id)
+            }}
+          >
+            <IconRefresh size={15} />
+          </button>
         )}
         {!isDeleted && (
           <button className="icon-btn" title="Move to Recently Deleted" onClick={onDelete}>

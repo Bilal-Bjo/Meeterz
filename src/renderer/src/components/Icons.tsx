@@ -121,6 +121,15 @@ export function IconRestore({ size = 16 }: IconProps): JSX.Element {
   )
 }
 
+export function IconRefresh({ size = 16 }: IconProps): JSX.Element {
+  return (
+    <svg {...base(size)}>
+      <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" />
+      <path d="M13.5 2.5V5H11" />
+    </svg>
+  )
+}
+
 export function IconPause({ size = 16 }: IconProps): JSX.Element {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16">
