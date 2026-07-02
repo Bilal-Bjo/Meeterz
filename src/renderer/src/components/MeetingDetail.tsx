@@ -20,6 +20,7 @@ interface MeetingDetailProps {
   onToast: (text: string) => void
   railCollapsed: boolean
   onToggleRail: () => void
+  transcriptSeed: string
 }
 
 export function MeetingDetail({
@@ -34,7 +35,8 @@ export function MeetingDetail({
   onStartRecording,
   onToast,
   railCollapsed,
-  onToggleRail
+  onToggleRail,
+  transcriptSeed
 }: MeetingDetailProps): JSX.Element {
   const [title, setTitle] = useState(meeting.title)
   const [exportOpen, setExportOpen] = useState(false)
@@ -42,6 +44,21 @@ export function MeetingDetail({
   useEffect(() => {
     setTitle(meeting.title)
   }, [meeting.id])
+
+  // Cmd+F: find in transcript (expands the rail if collapsed).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault()
+        if (railCollapsed) onToggleRail()
+        requestAnimationFrame(() => {
+          document.querySelector<HTMLInputElement>('.rail-search input')?.focus()
+        })
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [railCollapsed, onToggleRail])
 
   const createdAt = new Date(meeting.created_at)
   const isDeleted = meeting.deleted_at != null
@@ -175,6 +192,7 @@ export function MeetingDetail({
             meeting={meeting}
             liveSegments={liveSegments}
             onRetry={() => window.api.transcribe.retry(meeting.id)}
+            seed={transcriptSeed}
           />
         )}
       </div>

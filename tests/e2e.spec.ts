@@ -201,6 +201,33 @@ test('imports a Teams .vtt transcript with speaker names', async () => {
   await page.screenshot({ path: 'tests/screenshots/08-imported-vtt.png' })
 })
 
+test('find-in-transcript: highlights, counts and cycles matches', async () => {
+  // Self-contained: import a fresh transcript to search within.
+  await page.locator('.nav-row', { hasText: 'Import transcript' }).click()
+  await expect(page.locator('.rail-search')).toBeVisible({ timeout: 10_000 })
+
+  // "de" appears in multiple Dutch cues
+  await page.locator('.rail-search input').fill('vrijdag')
+  await expect(page.locator('.segment-text mark').first()).toHaveText(/vrijdag/i)
+  await expect(page.locator('.rail-search-count')).toHaveText('1/1')
+  await expect(page.locator('.segment.search-current')).toContainText('deadline')
+
+  // multiple matches cycle with Enter
+  await page.locator('.rail-search input').fill('le')
+  const count = await page.locator('.rail-search-count').textContent()
+  expect(count).toMatch(/^1\/\d+$/)
+  await page.locator('.rail-search input').press('Enter')
+  await expect(page.locator('.rail-search-count')).toHaveText(/^2\//)
+
+  // Esc clears
+  await page.locator('.rail-search input').press('Escape')
+  await expect(page.locator('.segment-text mark')).toHaveCount(0)
+
+  // Cmd+F focuses the search field
+  await page.keyboard.press('Meta+f')
+  await expect(page.locator('.rail-search input')).toBeFocused()
+})
+
 test('full-text search finds transcript content', async () => {
   await page.locator('.list-search input').fill('kwartaaloverzicht')
   await expect(page.locator('.meeting-row')).toHaveCount(1, { timeout: 5_000 })

@@ -31,6 +31,7 @@ function App(): JSX.Element {
   const [recording, setRecording] = useState<RecordingState | null>(null)
   const [liveSegments, setLiveSegments] = useState<TranscriptSegment[]>([])
   const [toast, setToast] = useState<{ text: string; error: boolean } | null>(null)
+  const [listQuery, setListQuery] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const captureRef = useRef(new MeetingCapture())
   const recordingRef = useRef<RecordingState | null>(null)
@@ -268,6 +269,8 @@ function App(): JSX.Element {
         onSelect={setSelectedMeetingId}
         isTrash={selectedFolderId === 'trash'}
         onEmptyTrash={emptyTrash}
+        query={listQuery}
+        onQueryChange={setListQuery}
       />
 
       {selectedMeeting ? (
@@ -285,6 +288,7 @@ function App(): JSX.Element {
           onToast={showToast}
           railCollapsed={railCollapsed}
           onToggleRail={toggleRail}
+          transcriptSeed={listQuery}
         />
       ) : (
         <main className="detail detail-empty">

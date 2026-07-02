@@ -3,16 +3,35 @@ import type { JSX } from 'react'
 import type { Meeting, TranscriptSegment } from '../types'
 import { formatTimestamp } from '../lib/format'
 import { speakerName, speakerClass } from '../lib/speakers'
-import { IconCopy, IconMic, IconWave } from './Icons'
+import { IconCopy, IconMic, IconSearch, IconWave } from './Icons'
 
 interface TranscriptRailProps {
   meeting: Meeting
   liveSegments: TranscriptSegment[]
   onRetry: () => void
+  seed?: string
 }
 
-export function TranscriptRail({ meeting, liveSegments, onRetry }: TranscriptRailProps): JSX.Element {
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function Highlighted({ text, query }: { text: string; query: string }): JSX.Element {
+  if (!query) return <>{text}</>
+  const parts = text.split(new RegExp(`(${escapeRegExp(query)})`, 'ig'))
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.toLowerCase() === query.toLowerCase() ? <mark key={i}>{p}</mark> : p
+      )}
+    </>
+  )
+}
+
+export function TranscriptRail({ meeting, liveSegments, onRetry, seed }: TranscriptRailProps): JSX.Element {
   const [copied, setCopied] = useState(false)
+  const [query, setQuery] = useState('')
+  const [matchIdx, setMatchIdx] = useState(0)
   const [playing, setPlaying] = useState<{ source: string; time: number } | null>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
   const [playerSource, setPlayerSource] = useState<'mic' | 'system' | null>(null)
@@ -41,7 +60,34 @@ export function TranscriptRail({ meeting, liveSegments, onRetry }: TranscriptRai
   useEffect(() => {
     setPlayerSource(null)
     setPlaying(null)
+    // A meeting opened from an active library search starts pre-filtered.
+    setQuery(seed ?? '')
+    setMatchIdx(0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meeting.id])
+
+  const q = query.trim().toLowerCase()
+  const matches = useMemo(
+    () => (q ? segments.map((s, i) => ({ s, i })).filter((x) => x.s.text.toLowerCase().includes(q)) : []),
+    [segments, q]
+  )
+
+  useEffect(() => setMatchIdx(0), [q])
+
+  const currentSegIdx = matches.length > 0 ? matches[Math.min(matchIdx, matches.length - 1)].i : -1
+
+  useEffect(() => {
+    if (currentSegIdx >= 0) {
+      document
+        .querySelector(`[data-seg-idx="${currentSegIdx}"]`)
+        ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }
+  }, [currentSegIdx])
+
+  const cycle = (dir: 1 | -1): void => {
+    if (matches.length === 0) return
+    setMatchIdx((v) => (v + dir + matches.length) % matches.length)
+  }
 
   const audioSrc = (source: string): string =>
     `meeterz-audio://recordings/${meeting.id}/${source}.${meeting.audio_format}`
@@ -92,6 +138,38 @@ export function TranscriptRail({ meeting, liveSegments, onRetry }: TranscriptRai
           </button>
         )}
       </div>
+
+      {segments.length > 0 && (
+        <div className="rail-search">
+          <IconSearch size={13} />
+          <input
+            placeholder="Find in transcript"
+            value={query}
+            spellCheck={false}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') cycle(e.shiftKey ? -1 : 1)
+              if (e.key === 'Escape') {
+                setQuery('')
+                ;(e.target as HTMLInputElement).blur()
+              }
+            }}
+          />
+          {q && (
+            <span className="rail-search-meta">
+              <span className="rail-search-count">
+                {matches.length === 0 ? '0' : `${Math.min(matchIdx + 1, matches.length)}/${matches.length}`}
+              </span>
+              <button className="icon-btn" title="Previous match (⇧↩)" onClick={() => cycle(-1)}>
+                ↑
+              </button>
+              <button className="icon-btn" title="Next match (↩)" onClick={() => cycle(1)}>
+                ↓
+              </button>
+            </span>
+          )}
+        </div>
+      )}
 
       {hasAudio && (
         <div className="audio-players">
@@ -146,7 +224,8 @@ export function TranscriptRail({ meeting, liveSegments, onRetry }: TranscriptRai
         {segments.map((s, i) => (
           <div
             key={`${s.source}-${s.start}-${i}`}
-            className={`segment ${isActive(s) ? 'active' : ''} ${hasAudio && s.source !== 'import' ? 'seekable' : ''}`}
+            data-seg-idx={i}
+            className={`segment ${isActive(s) ? 'active' : ''} ${hasAudio && s.source !== 'import' ? 'seekable' : ''} ${i === currentSegIdx ? 'search-current' : ''}`}
             style={{ animationDelay: `${Math.min(i * 24, 400)}ms` }}
             onClick={() => seekTo(s)}
           >
@@ -155,7 +234,9 @@ export function TranscriptRail({ meeting, liveSegments, onRetry }: TranscriptRai
               <span className="segment-time">{formatTimestamp(s.start)}</span>
               {s.lang && <span className="segment-lang">{s.lang}</span>}
             </div>
-            <p className="segment-text">{s.text}</p>
+            <p className="segment-text">
+              <Highlighted text={s.text} query={q} />
+            </p>
           </div>
         ))}
       </div>

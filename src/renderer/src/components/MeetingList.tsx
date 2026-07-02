@@ -10,6 +10,8 @@ interface MeetingListProps {
   onSelect: (id: number) => void
   isTrash: boolean
   onEmptyTrash: () => void
+  query: string
+  onQueryChange: (q: string) => void
 }
 
 function snippet(m: Meeting): string {
@@ -33,8 +35,7 @@ function StatusDot({ status }: { status: Meeting['status'] }): JSX.Element | nul
   return null
 }
 
-export function MeetingList({ meetings, selectedId, onSelect, isTrash, onEmptyTrash }: MeetingListProps): JSX.Element {
-  const [query, setQuery] = useState('')
+export function MeetingList({ meetings, selectedId, onSelect, isTrash, onEmptyTrash, query, onQueryChange }: MeetingListProps): JSX.Element {
   const [hits, setHits] = useState<Map<number, string> | null>(null)
 
   // Full-text search (SQLite FTS5) over title, notes and transcript.
@@ -78,7 +79,7 @@ export function MeetingList({ meetings, selectedId, onSelect, isTrash, onEmptyTr
         <input
           placeholder="Search"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => onQueryChange(e.target.value)}
           spellCheck={false}
         />
       </div>

@@ -980,6 +980,74 @@ select:focus-visible {
   color: var(--ink-3);
 }
 
+/* Find in transcript */
+.rail-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 16px 10px;
+  height: 27px;
+  padding: 0 9px;
+  border-radius: 8px;
+  background: var(--control-bg);
+  color: var(--ink-3);
+  flex-shrink: 0;
+}
+
+.rail-search input {
+  border: none;
+  background: none;
+  font-size: 12.5px;
+  width: 100%;
+  color: var(--ink);
+  min-width: 0;
+}
+
+.rail-search input::placeholder {
+  color: var(--ink-3);
+}
+
+.rail-search-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.rail-search-count {
+  font-size: 11px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  margin-right: 2px;
+}
+
+.rail-search .icon-btn {
+  width: 18px;
+  height: 18px;
+  font-size: 11px;
+}
+
+.segment-text mark {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 3px;
+  padding: 0 1px;
+  font-weight: 590;
+}
+
+.segment.search-current {
+  background: var(--accent-soft);
+  border-radius: 8px;
+  margin-left: -8px;
+  margin-right: -8px;
+  padding: 4px 8px;
+}
+
+.segment.search-current .segment-text mark {
+  background: var(--accent);
+  color: #fff;
+}
+
 .rail-error {
   text-align: center;
   padding: 40px 24px;
