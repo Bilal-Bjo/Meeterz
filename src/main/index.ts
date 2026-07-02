@@ -124,12 +124,21 @@ function setupAudioProtocol(): void {
     if (!existsSync(file)) return new Response('not found', { status: 404 })
     const size = statSync(file).size
     const mime = file.endsWith('.m4a') ? 'audio/mp4' : 'audio/wav'
+    // All three RFC 7233 single-range forms matter here: "A-B", "A-" and
+    // the suffix form "-N" (used to read the moov index at the end of an
+    // M4A) — mishandling any of them silently corrupts the decoder's view
+    // of the file.
     const range = request.headers.get('range')
-    const m = range ? /bytes=(\d+)-(\d*)/.exec(range) : null
-    if (m) {
-      const start = Number(m[1])
-      const end = m[2] ? Math.min(Number(m[2]), size - 1) : size - 1
-      if (start >= size) return new Response(null, { status: 416 })
+    const m = range ? /^\s*bytes=(\d*)-(\d*)\s*$/.exec(range) : null
+    if (m && (m[1] || m[2])) {
+      const start = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]))
+      const end = m[1] && m[2] ? Math.min(Number(m[2]), size - 1) : size - 1
+      if (start >= size || start > end) {
+        return new Response(null, {
+          status: 416,
+          headers: { 'Content-Range': `bytes */${size}` }
+        })
+      }
       const stream = Readable.toWeb(createReadStream(file, { start, end })) as ReadableStream
       return new Response(stream, {
         status: 206,
