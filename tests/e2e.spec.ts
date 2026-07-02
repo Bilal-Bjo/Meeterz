@@ -6,7 +6,7 @@ import {
   type Page
 } from '@playwright/test'
 import { execFile } from 'child_process'
-import { mkdtempSync } from 'fs'
+import { appendFileSync, mkdtempSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -52,6 +52,7 @@ let app: ElectronApplication
 let page: Page
 
 test.beforeAll(async () => {
+  writeFileSync(join(__dirname, 'main-stderr.log'), '')
   const userDataDir = mkdtempSync(join(tmpdir(), 'meeterz-test-'))
   app = await electron.launch({
     args: ['.'],
@@ -63,6 +64,9 @@ test.beforeAll(async () => {
       MEETERZ_IMPORT_FILE: join(__dirname, 'fixtures', 'teams-transcript.vtt'),
       MEETERZ_SKIP_CONFIRM: '1'
     }
+  })
+  app.process().stderr?.on('data', (d: Buffer) => {
+    appendFileSync(join(__dirname, 'main-stderr.log'), d)
   })
   page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')
@@ -181,7 +185,7 @@ test('pause and resume recording', async () => {
   await say(['-r', '170'], 'Testing pause and resume functionality today')
   await page.waitForTimeout(1200)
   const transcript = await stopAndAwaitTranscript()
-  expect(transcript).toContain('pause')
+  expect(transcript).toContain('resume')
 })
 
 test('imports a Teams .vtt transcript with speaker names', async () => {

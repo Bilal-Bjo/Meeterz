@@ -31,8 +31,50 @@ export function activeModelPath(): string {
   throw new Error('No Whisper model found — download one in Settings.')
 }
 
-// Whisper emits bracketed non-speech markers on silence/noise; drop them.
-const NOISE = /^[\s([]*(BLANK_AUDIO|silence|music|noise|inaudible|typing|no audio)[\s)\]]*$/i
+// Whisper emits non-speech annotations on noise — "(keyboard clacking)",
+// "[typing]", "*music*", "♪" — in whatever language it's decoding. Any
+// segment that is nothing but a bracketed/starred annotation is not speech.
+const ANNOTATION = /^[\s]*[([*♪][^)\]]*[)\]*♪]?[\s.]*$/
+const NOISE_WORDS = /^[\s([]*(BLANK_AUDIO|silence|music|noise|inaudible|typing|no audio)[\s)\]]*$/i
+
+function isNoise(text: string): boolean {
+  if (text.length === 0) return true
+  if (NOISE_WORDS.test(text)) return true
+  if (ANNOTATION.test(text)) return true
+  // only punctuation/dashes
+  if (/^[\s\-–—.…,!?·]*$/.test(text)) return true
+  return false
+}
+
+// Whisper can get stuck in a loop, emitting the same phrase over and over
+// inside one segment. If a phrase of ≥3 words repeats ≥3 times back-to-back,
+// collapse it to a single occurrence.
+export function collapseRepeats(text: string): string {
+  const words = text.split(/\s+/)
+  for (let unit = 3; unit <= Math.floor(words.length / 3); unit++) {
+    const phrase = words.slice(0, unit).join(' ').toLowerCase().replace(/[.,!?]+$/, '')
+    let repeats = 1
+    while (repeats * unit + unit <= words.length) {
+      const next = words
+        .slice(repeats * unit, (repeats + 1) * unit)
+        .join(' ')
+        .toLowerCase()
+        .replace(/[.,!?]+$/, '')
+      if (next !== phrase) break
+      repeats++
+    }
+    if (repeats >= 3) {
+      const rest = words.slice(repeats * unit).join(' ')
+      const restCollapsed = rest ? collapseRepeats(rest) : ''
+      const restIsPrefix =
+        restCollapsed && phrase.startsWith(restCollapsed.toLowerCase().replace(/[.,!?]+$/, ''))
+      return (
+        words.slice(0, unit).join(' ') + (restCollapsed && !restIsPrefix ? ' ' + restCollapsed : '')
+      )
+    }
+  }
+  return text
+}
 
 interface WhisperJson {
   result?: { language?: string }
@@ -77,8 +119,13 @@ export async function transcribeWindow(
   const input = isWhole ? wav : `${wav}.win-${Math.round(fromSec * 1000)}.wav`
   if (!isWhole) extractWavWindow(wav, input, fromSec, durSec)
   const outPrefix = `${input}.out`
-  const args = ['-m', model, '-f', input, '-oj', '-of', outPrefix, '-t', '4', '-np']
+  const args = ['-m', model, '-f', input, '-oj', '-of', outPrefix, '-t', '4', '-np', '-sns']
   if (!model.includes('.en.')) args.push('-l', 'auto')
+  // Voice-activity detection: skip non-speech (keyboard, coughs, silence)
+  // before Whisper ever sees it — the main defense against noise segments
+  // and silence-induced hallucination loops.
+  const vad = join(modelsDir(), 'ggml-silero-v5.1.2.bin')
+  if (existsSync(vad)) args.push('--vad', '-vm', vad)
 
   try {
     await execWhisper(args)
@@ -89,10 +136,10 @@ export async function transcribeWindow(
         source,
         start: s.offsets.from / 1000 + fromSec,
         end: s.offsets.to / 1000 + fromSec,
-        text: s.text.trim(),
+        text: collapseRepeats(s.text.trim()),
         ...(lang ? { lang } : {})
       }))
-      .filter((s) => s.text.length > 0 && !NOISE.test(s.text))
+      .filter((s) => !isNoise(s.text))
   } finally {
     await unlink(`${outPrefix}.json`).catch(() => {})
     if (!isWhole) await unlink(input).catch(() => {})
@@ -129,7 +176,19 @@ async function transcribeChannelWav(
     }
     if (start + dur >= total) break
   }
-  return out
+  return dropConsecutiveDuplicates(out)
+}
+
+// A hallucination loop can also span windows: the same long sentence emitted
+// again and again. Consecutive identical segments (beyond short interjections
+// like "yes") are collapsed to the first occurrence.
+function dropConsecutiveDuplicates(segs: TranscriptSegment[]): TranscriptSegment[] {
+  const norm = (t: string): string => t.toLowerCase().replace(/[\s.,!?]+/g, ' ').trim()
+  return segs.filter((s, i) => {
+    if (i === 0) return true
+    const cur = norm(s.text)
+    return cur.length <= 20 || cur !== norm(segs[i - 1].text)
+  })
 }
 
 // Transcribes each recorded channel (windowed, language re-detected per

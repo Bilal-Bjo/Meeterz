@@ -7,3 +7,4 @@ out
 models/*.bin
 tests/screenshots/
 test-results/
+tests/main-stderr.log

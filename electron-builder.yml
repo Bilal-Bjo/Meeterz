@@ -18,6 +18,8 @@ asarUnpack:
 extraResources:
   - from: models/ggml-small.bin
     to: models/ggml-small.bin
+  - from: models/ggml-silero-v5.1.2.bin
+    to: models/ggml-silero-v5.1.2.bin
   - from: models/diarization
     to: models/diarization
 mac:

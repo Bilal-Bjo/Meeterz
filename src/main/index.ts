@@ -133,7 +133,9 @@ async function confirmDialog(message: string, detail: string, action: string): P
 }
 
 async function eraseMeeting(m: Meeting): Promise<void> {
-  if (m.audio_dir) {
+  // Safety: only ever erase a directory strictly inside the recordings root.
+  const root = recordingsRoot()
+  if (m.audio_dir && m.audio_dir.startsWith(root + '/') && m.audio_dir.length > root.length + 1) {
     const { rm } = await import('fs/promises')
     await rm(m.audio_dir, { recursive: true, force: true }).catch(() => {})
   }
