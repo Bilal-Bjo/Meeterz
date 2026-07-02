@@ -37,6 +37,10 @@ const api = {
   transcribe: {
     retry: (meetingId: number) => ipcRenderer.invoke('transcribe:retry', meetingId)
   },
+  audio: {
+    peaks: (meetingId: number, channel: 'mic' | 'system') =>
+      ipcRenderer.invoke('audio:peaks', meetingId, channel)
+  },
   importVtt: () => ipcRenderer.invoke('import:vtt'),
   exportMeeting: {
     markdown: (id: number) => ipcRenderer.invoke('export:markdown', id),

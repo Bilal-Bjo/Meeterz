@@ -153,7 +153,21 @@ for (const [i, c] of CASES.entries()) {
       expect(transcript, `${c.name} transcript should contain "${word}"`).toContain(word)
     }
     await expect(page.locator('.speaker-chip').first()).toContainText('Them')
-    if (i === 0) await page.screenshot({ path: 'tests/screenshots/04-transcript.png' })
+
+    if (i === 0) {
+      // Waveform player: canvas rendered, search match shows a timeline pin,
+      // clicking the pin starts playback at that moment.
+      await expect(page.locator('.wf-player canvas')).toBeVisible()
+      await page.locator('.rail-search input').fill('budget')
+      await expect(page.locator('.wf-pin')).toHaveCount(1)
+      await page.locator('.wf-pin').click()
+      await expect
+        .poll(async () => page.locator('audio').evaluate((el: HTMLAudioElement) => el.currentTime))
+        .toBeGreaterThan(0)
+      await page.locator('.wf-play').click() // pause
+      await page.locator('.rail-search input').press('Escape')
+      await page.screenshot({ path: 'tests/screenshots/04-transcript.png' })
+    }
   })
 }
 

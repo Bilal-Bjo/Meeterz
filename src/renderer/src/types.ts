@@ -75,6 +75,9 @@ export interface MeeterzApi {
   transcribe: {
     retry: (meetingId: number) => Promise<void>
   }
+  audio: {
+    peaks: (meetingId: number, channel: 'mic' | 'system') => Promise<number[]>
+  }
   importVtt: () => Promise<Meeting | null>
   exportMeeting: {
     markdown: (id: number) => Promise<boolean>

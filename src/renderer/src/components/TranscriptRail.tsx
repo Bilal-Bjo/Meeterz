@@ -4,6 +4,7 @@ import type { Meeting, TranscriptSegment } from '../types'
 import { formatTimestamp } from '../lib/format'
 import { speakerName, speakerClass } from '../lib/speakers'
 import { IconCopy, IconMic, IconSearch, IconWave } from './Icons'
+import { WaveformPlayer, type TimelinePin } from './WaveformPlayer'
 
 interface TranscriptRailProps {
   meeting: Meeting
@@ -33,6 +34,7 @@ export function TranscriptRail({ meeting, liveSegments, onRetry, seed }: Transcr
   const [query, setQuery] = useState('')
   const [matchIdx, setMatchIdx] = useState(0)
   const [playing, setPlaying] = useState<{ source: string; time: number } | null>(null)
+  const [peaks, setPeaks] = useState<number[] | null>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
   const [playerSource, setPlayerSource] = useState<'mic' | 'system' | null>(null)
 
@@ -60,11 +62,34 @@ export function TranscriptRail({ meeting, liveSegments, onRetry, seed }: Transcr
   useEffect(() => {
     setPlayerSource(null)
     setPlaying(null)
+    setPeaks(null)
     // A meeting opened from an active library search starts pre-filtered.
     setQuery(seed ?? '')
     setMatchIdx(0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meeting.id])
+
+  // Default the player to the first recorded channel.
+  useEffect(() => {
+    if (hasAudio && !playerSource) {
+      setPlayerSource((channels[0] as 'mic' | 'system') ?? null)
+    }
+  }, [hasAudio, channels, playerSource])
+
+  // Waveform peaks are computed once in the main process and cached.
+  useEffect(() => {
+    if (!hasAudio || !playerSource) return
+    let cancelled = false
+    setPeaks(null)
+    window.api.audio
+      .peaks(meeting.id, playerSource)
+      .then((p) => !cancelled && setPeaks(p))
+      .catch(() => !cancelled && setPeaks([]))
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meeting.id, playerSource, hasAudio])
 
   const q = query.trim().toLowerCase()
   const matches = useMemo(
@@ -88,6 +113,19 @@ export function TranscriptRail({ meeting, liveSegments, onRetry, seed }: Transcr
     if (matches.length === 0) return
     setMatchIdx((v) => (v + dir + matches.length) % matches.length)
   }
+
+  // Timeline pins: one per search match in the channel being played.
+  const pins = useMemo<TimelinePin[]>(
+    () =>
+      matches
+        .filter((m) => m.s.source === playerSource)
+        .map((m) => ({
+          time: m.s.start,
+          label: `${formatTimestamp(m.s.start)} — ${m.s.text.slice(0, 80)}`,
+          segIdx: m.i
+        })),
+    [matches, playerSource]
+  )
 
   const audioSrc = (source: string): string =>
     `meeterz-audio://recordings/${meeting.id}/${source}.${meeting.audio_format}`
@@ -171,29 +209,28 @@ export function TranscriptRail({ meeting, liveSegments, onRetry, seed }: Transcr
         </div>
       )}
 
-      {hasAudio && (
-        <div className="audio-players">
-          {playerSource ? (
-            <div className="audio-row">
-              <span className="audio-label">
-                {playerSource === 'system' ? 'Teams / system' : 'Room mic'}
-              </span>
-              <audio
-                ref={audioRef}
-                controls
-                preload="metadata"
-                src={audioSrc(playerSource)}
-                onTimeUpdate={(e) =>
-                  setPlaying({ source: playerSource, time: e.currentTarget.currentTime })
-                }
-                onPause={() => setPlaying(null)}
-                onEnded={() => setPlaying(null)}
-              />
-            </div>
-          ) : (
-            <div className="audio-hint">Click a transcript line to play it.</div>
-          )}
-        </div>
+      {hasAudio && playerSource && (
+        <WaveformPlayer
+          key={`${meeting.id}-${playerSource}`}
+          audioRef={audioRef}
+          src={audioSrc(playerSource)}
+          channels={channels}
+          channel={playerSource}
+          onChannelChange={(ch) => {
+            audioRef.current?.pause()
+            setPlaying(null)
+            setPlayerSource(ch)
+          }}
+          peaks={peaks}
+          pins={pins}
+          time={playing?.source === playerSource ? playing.time : 0}
+          onTimeUpdate={(t) => setPlaying({ source: playerSource, time: t })}
+          onPinClick={(pin) => {
+            const mi = matches.findIndex((m) => m.i === pin.segIdx)
+            if (mi >= 0) setMatchIdx(mi)
+            seekTo(segments[pin.segIdx])
+          }}
+        />
       )}
 
       <div className="rail-scroll">

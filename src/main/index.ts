@@ -39,6 +39,7 @@ import { parseVttFile } from './importVtt'
 import { meetingToMarkdown, exportPdf } from './exporter'
 import { compressChannels, decodeToWav } from './compress'
 import { modelStatuses, downloadModel, setActiveModel, whisperInstalled } from './modelManager'
+import { getPeaks } from './peaks'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -232,6 +233,12 @@ function registerIpc(): void {
     return true
   })
   ipcMain.handle('meetings:search', (_e, query: string) => meetings.search(query))
+
+  ipcMain.handle('audio:peaks', (_e, meetingId: number, channel: Channel) => {
+    const m = meetings.get(meetingId)
+    if (!m?.audio_dir) return []
+    return getPeaks(m.audio_dir, channel)
+  })
 
   ipcMain.handle('recording:start', (_e, meetingId: number) => {
     const dir = startSession(meetingId, settings.get('live_transcript', '1') === '1')
