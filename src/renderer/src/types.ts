@@ -76,7 +76,7 @@ export interface MeeterzApi {
     retry: (meetingId: number) => Promise<void>
   }
   audio: {
-    peaks: (meetingId: number, channel: 'mic' | 'system') => Promise<number[]>
+    peaks: (meetingId: number, channel: 'mic' | 'system' | 'mixed') => Promise<number[]>
   }
   importVtt: () => Promise<Meeting | null>
   exportMeeting: {

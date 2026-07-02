@@ -3,7 +3,7 @@ import { promisify } from 'util'
 import { existsSync, readFileSync } from 'fs'
 import { readFile, writeFile, unlink } from 'fs/promises'
 import { join } from 'path'
-import type { Channel } from './recording'
+type PeakSource = 'mic' | 'system' | 'mixed'
 
 const execFileAsync = promisify(execFile)
 
@@ -12,7 +12,7 @@ const BUCKETS = 400
 // Waveform peaks (0..1) for a recorded channel, computed once and cached
 // beside the audio. Works for both WAV (fresh) and M4A (archived) — the M4A
 // is decoded to a throwaway low-rate WAV via macOS's afconvert first.
-export async function getPeaks(dir: string, channel: Channel): Promise<number[]> {
+export async function getPeaks(dir: string, channel: PeakSource): Promise<number[]> {
   const cache = join(dir, `${channel}.peaks.json`)
   if (existsSync(cache)) {
     try {

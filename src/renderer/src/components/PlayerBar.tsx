@@ -25,10 +25,10 @@ interface PlayerBarProps {
   onPinClick: (pin: TimelinePin) => void
 }
 
-// One timeline for the whole meeting, YouTube-style, pinned at the bottom.
-// Both channels (Teams audio + room mic) were recorded simultaneously, so
-// they are played back TOGETHER in sync — the full conversation — over a
-// single merged waveform.
+// One timeline for the whole meeting, YouTube-style, docked at the bottom.
+// The two recorded channels (Teams audio + room mic) are pre-mixed into a
+// single `mixed.m4a` at processing time, so playback is ONE audio element —
+// no two-stream sync to drift, stall, or freeze.
 export function PlayerBar({
   meetingId,
   audioFormat,
@@ -41,59 +41,52 @@ export function PlayerBar({
 }: PlayerBarProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const waveRef = useRef<HTMLDivElement>(null)
-  const refs = useRef<Map<string, HTMLAudioElement>>(new Map())
+  const audioRef = useRef<HTMLAudioElement>(null)
   const [peaks, setPeaks] = useState<number[] | null>(null)
   const [duration, setDuration] = useState(0)
   const [time, setTime] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [hover, setHover] = useState<{ x: number; t: number } | null>(null)
+  // Prefer the single mixed track; fall back to the first channel if a meeting
+  // predates mixing (mixed peaks come back empty → use that channel instead).
+  const [source, setSource] = useState<'mixed' | 'mic' | 'system'>('mixed')
 
-  const audios = (): HTMLAudioElement[] => [...refs.current.values()]
-  const master = (): HTMLAudioElement | undefined => refs.current.get(channels[0])
+  // Source selection is decoupled from peaks: playback always starts on the
+  // mixed track and only falls back (via the audio element's onError) if that
+  // file is genuinely missing. Peaks are purely visual and loaded separately,
+  // so a slow/empty peaks response can never reload the audio mid-playback.
+  useEffect(() => {
+    setSource('mixed')
+  }, [meetingId])
 
-  // Merged waveform: the louder of the two channels per bucket.
   useEffect(() => {
     let cancelled = false
     setPeaks(null)
-    Promise.all(channels.map((ch) => window.api.audio.peaks(meetingId, ch).catch(() => [])))
-      .then((all) => {
-        if (cancelled) return
-        const valid = all.filter((p) => p.length > 0)
-        if (valid.length === 0) return setPeaks([])
-        const n = Math.max(...valid.map((p) => p.length))
-        const merged = Array.from({ length: n }, (_, i) =>
-          Math.max(...valid.map((p) => p[i] ?? 0))
-        )
-        setPeaks(merged)
-      })
+    const load = async (): Promise<void> => {
+      let p = await window.api.audio.peaks(meetingId, 'mixed').catch(() => [])
+      if ((!p || p.length === 0) && channels[0]) {
+        p = await window.api.audio.peaks(meetingId, channels[0]).catch(() => [])
+      }
+      if (!cancelled) setPeaks(p ?? [])
+    }
+    load()
     return () => {
       cancelled = true
     }
   }, [meetingId, channels])
 
-  // Keep the secondary channel locked to the master clock.
-  const syncSlaves = (): void => {
-    const m = master()
-    if (!m) return
-    for (const a of audios()) {
-      if (a !== m && Math.abs(a.currentTime - m.currentTime) > 0.25) {
-        a.currentTime = m.currentTime
-      }
-    }
-  }
-
-  const playAll = (): void => {
-    syncSlaves()
-    audios().forEach((a) => a.play().catch(() => {}))
-  }
-  const pauseAll = (): void => audios().forEach((a) => a.pause())
+  const src =
+    source === 'mixed'
+      ? `meeterz-audio://recordings/${meetingId}/mixed.m4a`
+      : `meeterz-audio://recordings/${meetingId}/${source}.${audioFormat}`
 
   const seek = (t: number, andPlay = true): void => {
+    const el = audioRef.current
+    if (!el) return
     const clamped = Math.min(Math.max(0, t), duration || t)
-    audios().forEach((a) => (a.currentTime = clamped))
+    el.currentTime = clamped
     setTime(clamped)
-    onTimeChange(clamped, playing)
-    if (andPlay) playAll()
+    if (andPlay) el.play().catch(() => {})
   }
 
   // External seek requests (transcript line / pin clicks upstream).
@@ -102,7 +95,7 @@ export function PlayerBar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seekReq?.nonce])
 
-  // Draw the merged waveform with played-portion coloring.
+  // Draw the waveform with played-portion coloring.
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -142,12 +135,11 @@ export function PlayerBar({
   }
 
   const toggle = (): void => {
-    if (playing) pauseAll()
-    else playAll()
+    const el = audioRef.current
+    if (!el) return
+    if (el.paused) el.play().catch(() => {})
+    else el.pause()
   }
-
-  const src = (ch: string): string =>
-    `meeterz-audio://recordings/${meetingId}/${ch}.${audioFormat}`
 
   return (
     <div className="player-bar">
@@ -192,52 +184,35 @@ export function PlayerBar({
         {formatTimestamp(time)} <span className="wf-time-total">/ {formatTimestamp(duration)}</span>
       </span>
 
-      {channels.map((ch) => (
-        <audio
-          key={ch}
-          ref={(el) => {
-            if (el) refs.current.set(ch, el)
-            else refs.current.delete(ch)
-          }}
-          src={src(ch)}
-          preload="metadata"
-          onLoadedMetadata={(e) => {
-            // capture before the updater runs — React nulls currentTarget
-            // after dispatch, and the updater executes at flush time.
-            // A stream Chromium can't index reports Infinity — fall back to
-            // the duration measured at recording time.
-            const raw = e.currentTarget.duration
-            const dur = Number.isFinite(raw) && raw > 0 ? raw : fallbackDuration
-            setDuration((d) => Math.max(d, dur))
-          }}
-          {...(ch === channels[0]
-            ? {
-                onTimeUpdate: (e: React.SyntheticEvent<HTMLAudioElement>) => {
-                  const t = e.currentTarget.currentTime
-                  setTime(t)
-                  syncSlaves()
-                  onTimeChange(t, !e.currentTarget.paused)
-                },
-                onPlay: () => {
-                  setPlaying(true)
-                  onTimeChange(master()?.currentTime ?? 0, true)
-                },
-                onPause: () => {
-                  setPlaying(false)
-                  pauseAll()
-                  onTimeChange(master()?.currentTime ?? 0, false)
-                },
-                onEnded: () => {
-                  setPlaying(false)
-                  pauseAll()
-                }
-              }
-            : {})}
-        />
-      ))}
+      <audio
+        ref={audioRef}
+        src={src}
+        preload="auto"
+        onLoadedMetadata={(e) => {
+          const raw = e.currentTarget.duration
+          const dur = Number.isFinite(raw) && raw > 0 ? raw : fallbackDuration
+          setDuration(dur)
+        }}
+        onTimeUpdate={(e) => {
+          const t = e.currentTarget.currentTime
+          setTime(t)
+          onTimeChange(t, !e.currentTarget.paused)
+        }}
+        onPlay={() => {
+          setPlaying(true)
+          onTimeChange(audioRef.current?.currentTime ?? 0, true)
+        }}
+        onPause={() => {
+          setPlaying(false)
+          onTimeChange(audioRef.current?.currentTime ?? 0, false)
+        }}
+        onEnded={() => setPlaying(false)}
+        onError={() => {
+          // Mixed track missing (older meeting mid-migration) — fall back to
+          // the first channel so playback still works.
+          if (source === 'mixed' && channels[0]) setSource(channels[0])
+        }}
+      />
     </div>
   )
 }
-
-export const playerSupportsMeeting = (status: string, audioDir: string | null, channels: string[]): boolean =>
-  status === 'ready' && !!audioDir && channels.length > 0

@@ -36,6 +36,7 @@ import { recoverStuckRecordings } from './recover'
 import { parseVttFile } from './importVtt'
 import { meetingToMarkdown, exportPdf } from './exporter'
 import { compressChannels, decodeToWav } from './compress'
+import { mixMeeting } from './mix'
 import { modelStatuses, downloadModel, setActiveModel, whisperInstalled } from './modelManager'
 import { getPeaks } from './peaks'
 
@@ -111,59 +112,42 @@ function setupAudioCapture(): void {
 
 function setupAudioProtocol(): void {
   // Serves recordings to the renderer: meeterz-audio://recordings/<id>/<file>
-  // Range requests are essential: M4A stores its index (moov atom) at the
-  // end of the file, so without byte ranges Chromium cannot determine the
-  // duration or seek — the player timeline appears dead.
+  // Everything is read fully into a Buffer — NEVER streamed. Recordings are
+  // small (~5 MB for 26 min at 24 kbps AAC) and streaming via Readable.toWeb
+  // deadlocks on backpressure, which surfaced as MEDIA_ERR_NETWORK ~12 s into
+  // playback. Range support is still honored so Chromium can read the M4A
+  // moov index at the end of the file and seek.
   protocol.handle('meeterz-audio', async (request) => {
     const url = new URL(request.url)
     const rel = decodeURIComponent(url.pathname).replace(/^\//, '')
     if (rel.includes('..')) return new Response('forbidden', { status: 403 })
     const file = join(recordingsRoot(), rel)
-    const { existsSync, statSync, createReadStream } = await import('fs')
-    const { Readable } = await import('stream')
+    const { existsSync, readFileSync } = await import('fs')
     if (!existsSync(file)) return new Response('not found', { status: 404 })
-    const size = statSync(file).size
+    const data = readFileSync(file)
+    const size = data.length
     const mime = file.endsWith('.m4a') ? 'audio/mp4' : 'audio/wav'
-    // All three RFC 7233 single-range forms matter here: "A-B", "A-" and
-    // the suffix form "-N" (used to read the moov index at the end of an
-    // M4A) — mishandling any of them silently corrupts the decoder's view
-    // of the file.
-    const range = request.headers.get('range')
-    const m = range ? /^\s*bytes=(\d*)-(\d*)\s*$/.exec(range) : null
+
+    // RFC 7233 single-range forms: "A-B", "A-", and suffix "-N".
+    const m = /^\s*bytes=(\d*)-(\d*)\s*$/.exec(request.headers.get('range') ?? '')
     if (m && (m[1] || m[2])) {
       const start = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]))
-      let end = m[1] && m[2] ? Math.min(Number(m[2]), size - 1) : size - 1
+      const end = m[1] && m[2] ? Math.min(Number(m[2]), size - 1) : size - 1
       if (start >= size || start > end) {
-        return new Response(null, {
-          status: 416,
-          headers: { 'Content-Range': `bytes */${size}` }
-        })
+        return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } })
       }
-      // Serve a bounded, fully-buffered chunk (RFC 7233 permits a subrange;
-      // the client re-requests the rest). Streaming large bodies through
-      // Readable.toWeb can deadlock on backpressure and stall playback.
-      end = Math.min(end, start + 8 * 1024 * 1024 - 1)
-      const { open } = await import('fs/promises')
-      const fh = await open(file, 'r')
-      try {
-        const len = end - start + 1
-        const buf = Buffer.alloc(len)
-        await fh.read(buf, 0, len, start)
-        return new Response(new Uint8Array(buf), {
-          status: 206,
-          headers: {
-            'Content-Range': `bytes ${start}-${end}/${size}`,
-            'Accept-Ranges': 'bytes',
-            'Content-Length': String(len),
-            'Content-Type': mime
-          }
-        })
-      } finally {
-        await fh.close()
-      }
+      const chunk = data.subarray(start, end + 1)
+      return new Response(new Uint8Array(chunk), {
+        status: 206,
+        headers: {
+          'Content-Range': `bytes ${start}-${end}/${size}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': String(chunk.length),
+          'Content-Type': mime
+        }
+      })
     }
-    const stream = Readable.toWeb(createReadStream(file)) as ReadableStream
-    return new Response(stream, {
+    return new Response(new Uint8Array(data), {
       status: 200,
       headers: {
         'Content-Length': String(size),
@@ -204,12 +188,25 @@ async function purgeExpiredTrash(): Promise<void> {
 
 // Meetings recorded while AAC compression was broken are stranded as WAVs,
 // which the player cannot serve reliably. Convert them in the background.
+async function ensureMixedTracks(): Promise<void> {
+  for (const m of meetings.list()) {
+    if (!m.audio_dir || m.status !== 'ready') continue
+    try {
+      const channels = JSON.parse(m.channels) as Channel[]
+      if (channels.length > 0) await mixMeeting(m.audio_dir, channels).then((ok) => ok && notifyMeetingUpdated(m.id))
+    } catch {
+      /* skip */
+    }
+  }
+}
+
 async function migrateWavMeetings(): Promise<void> {
   for (const m of meetings.list()) {
     if (m.audio_format !== 'wav' || !m.audio_dir || m.status !== 'ready') continue
     try {
       const channels = JSON.parse(m.channels) as Channel[]
       if (channels.length === 0) continue
+      await mixMeeting(m.audio_dir, channels)
       if (await compressChannels(m.audio_dir, channels)) {
         meetings.update(m.id, { audio_format: 'm4a' })
         notifyMeetingUpdated(m.id)
@@ -234,6 +231,7 @@ function setRecordingIndicators(recording: boolean): void {
 function runTranscription(meetingId: number, dir: string, channels: Channel[]): void {
   transcribeMeeting(dir, channels)
     .then(async (segments) => {
+      await mixMeeting(dir, channels)
       const compressed = await compressChannels(dir, channels)
       meetings.update(meetingId, {
         transcript: JSON.stringify(segments),
@@ -477,6 +475,7 @@ app.whenReady().then(() => {
   recoverStuckRecordings(runTranscription)
   purgeExpiredTrash()
   migrateWavMeetings()
+  ensureMixedTracks()
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

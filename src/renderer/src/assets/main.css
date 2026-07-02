@@ -1017,6 +1017,8 @@ select:focus-visible {
   font-variant-numeric: tabular-nums;
   color: var(--ink);
   flex-shrink: 0;
+  min-width: 84px;
+  text-align: right;
 }
 
 .wf-time-total {
