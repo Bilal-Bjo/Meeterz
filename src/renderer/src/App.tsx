@@ -67,6 +67,22 @@ function App(): JSX.Element {
     })
   }
 
+  // First launch: if the mic has never been requested, trigger the real
+  // prompt from the renderer. askForMediaAccess in the main process does not
+  // reliably show the dialog or register the app in System Settings; a
+  // renderer getUserMedia does both. Only runs while status is undetermined,
+  // so it never nags after the user has answered once.
+  useEffect(() => {
+    window.api.permissions.status().then(({ microphone }) => {
+      if (microphone === 'not-determined' || microphone === 'unknown') {
+        navigator.mediaDevices
+          .getUserMedia({ audio: true })
+          .then((s) => s.getTracks().forEach((t) => t.stop()))
+          .catch(() => {})
+      }
+    })
+  }, [])
+
   useEffect(() => {
     refresh()
     const offUpdated = window.api.onMeetingUpdated((updated) => {
