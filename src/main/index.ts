@@ -336,6 +336,26 @@ function registerIpc(): void {
     return meetings.get(meetingId)
   })
 
+  ipcMain.handle('permissions:status', () => ({
+    // macOS TCC status for the mic. System-audio ("System Audio Recording",
+    // kTCCServiceAudioCapture) has no query API, so it's tested live in the
+    // renderer via a real loopback capture instead.
+    microphone:
+      process.platform === 'darwin'
+        ? systemPreferences.getMediaAccessStatus('microphone')
+        : 'granted'
+  }))
+  ipcMain.handle('permissions:requestMic', () =>
+    process.platform === 'darwin'
+      ? systemPreferences.askForMediaAccess('microphone')
+      : Promise.resolve(true)
+  )
+  ipcMain.handle('permissions:openPane', (_e, pane: 'microphone' | 'audio') => {
+    const anchor =
+      pane === 'microphone' ? 'Privacy_Microphone' : 'Privacy_ScreenCapture'
+    shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${anchor}`)
+  })
+
   ipcMain.handle('transcribe:retry', async (_e, meetingId: number) => {
     const m = meetings.get(meetingId)
     if (!m?.audio_dir) return

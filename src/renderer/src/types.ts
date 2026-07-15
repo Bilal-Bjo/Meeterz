@@ -93,6 +93,11 @@ export interface MeeterzApi {
     get: (key: string, fallback: string) => Promise<string>
     set: (key: string, value: string) => Promise<void>
   }
+  permissions: {
+    status: () => Promise<{ microphone: string }>
+    requestMic: () => Promise<boolean>
+    openPane: (pane: 'microphone' | 'audio') => Promise<void>
+  }
   onMeetingUpdated: (cb: (meeting: Meeting) => void) => () => void
   onLiveSegments: (
     cb: (payload: { meetingId: number; segments: TranscriptSegment[] }) => void

@@ -56,6 +56,11 @@ const api = {
     get: (key: string, fallback: string) => ipcRenderer.invoke('settings:get', key, fallback),
     set: (key: string, value: string) => ipcRenderer.invoke('settings:set', key, value)
   },
+  permissions: {
+    status: () => ipcRenderer.invoke('permissions:status'),
+    requestMic: () => ipcRenderer.invoke('permissions:requestMic'),
+    openPane: (pane: 'microphone' | 'audio') => ipcRenderer.invoke('permissions:openPane', pane)
+  },
   onMeetingUpdated: (cb: (meeting: unknown) => void) => on('meeting:updated', cb),
   onLiveSegments: (cb: (payload: unknown) => void) => on('live:segments', cb),
   onToggleRecord: (cb: () => void) => on('command:toggle-record', cb),

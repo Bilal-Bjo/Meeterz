@@ -1365,6 +1365,75 @@ select:focus-visible {
   cursor: pointer;
 }
 
+.perm-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.perm-row:last-of-type {
+  border-bottom: none;
+}
+
+.perm-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.perm-name {
+  font-size: 13px;
+  font-weight: 590;
+}
+
+.perm-sub {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.perm-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.perm-badge.ok {
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+
+.perm-badge.bad {
+  color: var(--rec);
+  background: var(--rec-soft);
+}
+
+.perm-badge.unknown {
+  color: var(--ink-2);
+  background: var(--control-bg);
+}
+
+.perm-btn {
+  font-size: 12px;
+  font-weight: 590;
+  color: var(--accent);
+  padding: 4px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.perm-btn:hover {
+  background: var(--accent-soft);
+}
+
+.perm-btn:disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+
 .model-row {
   display: flex;
   align-items: center;
