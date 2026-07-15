@@ -27,6 +27,29 @@ export function SettingsModal({ onClose }: SettingsModalProps): JSX.Element {
     setMicStatus(p.microphone)
   }
 
+  // Triggers the real macOS mic prompt. Crucially this also REGISTERS Meeterz
+  // in System Settings › Microphone — an app only appears there once it has
+  // actually requested access. askForMediaAccess (main) prompts when the
+  // status is undetermined; a renderer getUserMedia is the belt-and-braces
+  // path that reliably registers the app even when already denied.
+  const grantMic = async (): Promise<void> => {
+    try {
+      await window.api.permissions.requestMic()
+    } catch {
+      /* ignore */
+    }
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true })
+      s.getTracks().forEach((t) => t.stop())
+    } catch {
+      /* denied — the app is now listed so the user can toggle it on */
+    }
+    await refreshMic()
+    // If still not granted, open the pane — Meeterz is now in the list.
+    const p = await window.api.permissions.status()
+    if (p.microphone !== 'granted') window.api.permissions.openPane('microphone')
+  }
+
   // No query API exists for the "System Audio Recording" permission, so we
   // test it for real: attempt a loopback capture and confirm audio flows.
   const testSystemAudio = async (): Promise<void> => {
@@ -89,19 +112,9 @@ export function SettingsModal({ onClose }: SettingsModalProps): JSX.Element {
               <button className="perm-btn" onClick={() => window.api.permissions.openPane('microphone')}>
                 Settings
               </button>
-            ) : micStatus === 'not-determined' || micStatus === 'unknown' ? (
-              <button
-                className="record-btn small"
-                onClick={async () => {
-                  await window.api.permissions.requestMic()
-                  refreshMic()
-                }}
-              >
-                Grant
-              </button>
             ) : (
-              <button className="record-btn small" onClick={() => window.api.permissions.openPane('microphone')}>
-                Open Settings
+              <button className="record-btn small" onClick={grantMic}>
+                Grant
               </button>
             )}
           </div>
