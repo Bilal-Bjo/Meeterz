@@ -37,6 +37,21 @@ export interface SearchHit {
   snippet: string
 }
 
+export interface MeetingContextAction {
+  meetingId: number
+  action:
+    | 'open'
+    | 'rename'
+    | 'move'
+    | 'export-markdown'
+    | 'export-pdf'
+    | 'copy-markdown'
+    | 'delete'
+    | 'restore'
+    | 'delete-forever'
+  folderId?: number | null
+}
+
 export interface ModelStatus {
   file: string
   label: string
@@ -65,6 +80,7 @@ export interface MeeterzApi {
     deleteForever: (id: number) => Promise<boolean>
     emptyTrash: () => Promise<boolean>
     search: (query: string) => Promise<SearchHit[]>
+    showContextMenu: (id: number) => void
   }
   recording: {
     start: (meetingId: number) => Promise<string>
@@ -103,6 +119,14 @@ export interface MeeterzApi {
     cb: (payload: { meetingId: number; segments: TranscriptSegment[] }) => void
   ) => () => void
   onToggleRecord: (cb: () => void) => () => void
+  onNewMeeting: (cb: () => void) => () => void
+  onImportTranscript: (cb: () => void) => () => void
+  onOpenSettings: (cb: () => void) => () => void
+  onFocusSearch: (cb: () => void) => () => void
+  onToggleSidebar: (cb: () => void) => () => void
+  onToggleTranscript: (cb: () => void) => () => void
+  onMeetingContextAction: (cb: (payload: MeetingContextAction) => void) => () => void
+  onRefresh: (cb: () => void) => () => void
   onModelProgress: (cb: (payload: { file: string; progress: number }) => void) => () => void
 }
 

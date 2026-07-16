@@ -6,7 +6,16 @@ import { formatDuration, formatTimestamp } from '../lib/format'
 import { TranscriptRail } from './TranscriptRail'
 import { PlayerBar, type SeekRequest, type TimelinePin } from './PlayerBar'
 import { NotesEditor } from './NotesEditor'
-import { IconExport, IconMic, IconPanelRight, IconRefresh, IconRestore, IconSpeaker, IconTrash, IconWave } from './Icons'
+import {
+  IconExport,
+  IconMic,
+  IconPanelRight,
+  IconRefresh,
+  IconRestore,
+  IconSpeaker,
+  IconTrash,
+  IconWave
+} from './Icons'
 
 interface MeetingDetailProps {
   meeting: Meeting
@@ -81,7 +90,8 @@ export function MeetingDetail({
 
   const q = query.trim().toLowerCase()
   const matches = useMemo(
-    () => (q ? segments.map((s, i) => ({ s, i })).filter((x) => x.s.text.toLowerCase().includes(q)) : []),
+    () =>
+      q ? segments.map((s, i) => ({ s, i })).filter((x) => x.s.text.toLowerCase().includes(q)) : [],
     [segments, q]
   )
   useEffect(() => setMatchIdx(0), [q])
@@ -159,18 +169,22 @@ export function MeetingDetail({
             </button>
           </>
         ) : (
-        <div className="export-wrap">
-          <button className="icon-btn" title="Export meeting" onClick={() => setExportOpen(!exportOpen)}>
-            <IconExport size={15} />
-          </button>
-          {exportOpen && (
-            <div className="export-menu" onMouseLeave={() => setExportOpen(false)}>
-              <button onClick={() => doExport('md')}>Export Markdown…</button>
-              <button onClick={() => doExport('pdf')}>Export PDF…</button>
-              <button onClick={() => doExport('copy')}>Copy as Markdown</button>
-            </div>
-          )}
-        </div>
+          <div className="export-wrap">
+            <button
+              className="icon-btn"
+              title="Export meeting"
+              onClick={() => setExportOpen(!exportOpen)}
+            >
+              <IconExport size={15} />
+            </button>
+            {exportOpen && (
+              <div className="export-menu" onMouseLeave={() => setExportOpen(false)}>
+                <button onClick={() => doExport('md')}>Export Markdown…</button>
+                <button onClick={() => doExport('pdf')}>Export PDF…</button>
+                <button onClick={() => doExport('copy')}>Copy as Markdown</button>
+              </div>
+            )}
+          </div>
         )}
         {!isDeleted && hasAudio && meeting.origin !== 'import' && (
           <button
@@ -201,8 +215,8 @@ export function MeetingDetail({
       {isDeleted && (
         <div className="deleted-banner">
           <span>
-            This meeting is in Recently Deleted — it will be permanently erased in {purgeDays}{' '}
-            day{purgeDays === 1 ? '' : 's'}.
+            This meeting is in Recently Deleted — it will be permanently erased in {purgeDays} day
+            {purgeDays === 1 ? '' : 's'}.
           </span>
           <button className="record-btn small" onClick={onRestore}>
             Restore
@@ -218,7 +232,9 @@ export function MeetingDetail({
             spellCheck={false}
             placeholder="Untitled meeting"
             onChange={(e) => setTitle(e.target.value)}
-            onBlur={() => title.trim() && title !== meeting.title && onUpdate({ title: title.trim() })}
+            onBlur={() =>
+              title.trim() && title !== meeting.title && onUpdate({ title: title.trim() })
+            }
             onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
           />
 
@@ -279,6 +295,7 @@ export function MeetingDetail({
             onSegmentClick={(seg) => {
               if (hasAudio && seg.source !== 'import') seekTo(seg.start)
             }}
+            onSegmentsChange={(next) => onUpdate({ transcript: JSON.stringify(next) })}
             onRetry={() => window.api.transcribe.retry(meeting.id)}
           />
         )}
@@ -315,16 +332,58 @@ function StartRecordingCard({
 }): JSX.Element {
   const [system, setSystem] = useState(true)
   const [mic, setMic] = useState(true)
+  const [readiness, setReadiness] = useState<'checking' | 'ready' | 'microphone' | 'model'>(
+    'checking'
+  )
+
+  useEffect(() => {
+    Promise.all([window.api.permissions.status(), window.api.models.list()]).then(
+      ([permission, models]) => {
+        if (
+          !models.whisperInstalled ||
+          !models.models.some((model) => model.installed && model.active)
+        ) {
+          setReadiness('model')
+        } else if (permission.microphone !== 'granted') {
+          setReadiness('microphone')
+        } else {
+          setReadiness('ready')
+        }
+      }
+    )
+  }, [])
 
   return (
     <div className="start-card">
       <div className="start-card-info">
         <div className="start-card-title">Ready to record</div>
-        <div className="start-card-sub">Captures Teams call audio and your room, transcribed on-device.</div>
+        <div className="start-card-sub">
+          Captures Teams call audio and your room, transcribed on-device.
+        </div>
+        <button
+          className={`readiness-status ${readiness}`}
+          disabled={readiness === 'checking' || readiness === 'ready'}
+          onClick={() => {
+            if (readiness === 'microphone') void window.api.permissions.openPane('microphone')
+            if (readiness === 'model')
+              window.dispatchEvent(new CustomEvent('meeterz:open-settings'))
+          }}
+        >
+          <span aria-hidden="true" />
+          {readiness === 'checking'
+            ? 'Checking setup…'
+            : readiness === 'ready'
+              ? 'Recording setup ready'
+              : readiness === 'microphone'
+                ? 'Microphone access needs attention'
+                : 'Transcription model needs attention'}
+        </button>
       </div>
       <div className="start-card-controls">
         <button
           className={`toggle-pill ${system ? 'on' : ''}`}
+          aria-pressed={system}
+          aria-label="Capture system audio"
           onClick={() => setSystem(!system)}
           title="Capture system audio (Teams, any app)"
         >
@@ -332,6 +391,8 @@ function StartRecordingCard({
         </button>
         <button
           className={`toggle-pill ${mic ? 'on' : ''}`}
+          aria-pressed={mic}
+          aria-label="Capture microphone"
           onClick={() => setMic(!mic)}
           title="Capture microphone (room)"
         >
@@ -339,7 +400,9 @@ function StartRecordingCard({
         </button>
         <button
           className="record-btn"
-          disabled={!system && !mic}
+          disabled={
+            (!system && !mic) || readiness === 'model' || (mic && readiness === 'microphone')
+          }
           onClick={() => onStart({ system, mic })}
         >
           <IconWave size={15} />

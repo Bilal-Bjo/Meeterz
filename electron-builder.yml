@@ -23,10 +23,11 @@ extraResources:
   - from: models/diarization
     to: models/diarization
 mac:
+  entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
-    - NSMicrophoneUsageDescription: Meeterz records your microphone to transcribe in-person meetings.
-    - NSAudioCaptureUsageDescription: Meeterz records system audio (e.g. Teams calls) to transcribe your meetings.
+    NSMicrophoneUsageDescription: Meeterz records your microphone to transcribe in-person meetings.
+    NSAudioCaptureUsageDescription: Meeterz records system audio (e.g. Teams calls) to transcribe your meetings.
   notarize: false
 dmg:
   artifactName: ${name}-${version}.${ext}

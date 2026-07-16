@@ -322,6 +322,40 @@ select:focus-visible {
   color: var(--ink-3);
 }
 
+.search-clear {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--ink-3);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.search-clear:hover {
+  color: var(--ink);
+  background: var(--hover-strong);
+}
+
+.list-context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 16px 4px;
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 540;
+  flex-shrink: 0;
+}
+
+.list-result-count {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .list-scroll {
   overflow-y: auto;
   flex: 1;
@@ -345,17 +379,30 @@ select:focus-visible {
   border-radius: var(--r-card);
   border: 1px solid transparent;
   margin-bottom: 2px;
-  transition: background 100ms ease;
+  transition:
+    transform 180ms var(--ease-spring),
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 180ms ease;
 }
 
 .meeting-row:hover {
   background: var(--hover);
+  transform: translateX(2px);
+}
+
+.meeting-row:active {
+  transform: translateX(2px) scale(0.99);
 }
 
 .meeting-row.selected {
   background: var(--bg-elevated);
   border-color: var(--border);
   box-shadow: var(--shadow-1);
+}
+
+.detail:not(.detail-empty) .detail-body {
+  animation: detail-enter 220ms var(--ease-spring) both;
 }
 
 .row-top {
@@ -389,6 +436,13 @@ select:focus-visible {
   white-space: nowrap;
 }
 
+.row-snippet mark {
+  color: var(--ink);
+  background: var(--accent-soft);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
 .status-dot {
   width: 7px;
   height: 7px;
@@ -411,10 +465,32 @@ select:focus-visible {
 }
 
 .list-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
   text-align: center;
   color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 40px 14px;
+}
+
+.list-empty strong {
+  color: var(--ink-2);
   font-size: 12.5px;
-  padding: 40px 16px;
+  font-weight: 600;
+}
+
+.text-action {
+  margin-top: 3px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.text-action:hover {
+  text-decoration: underline;
 }
 
 /* ── Detail ──────────────────────────────────────────────────────────── */
@@ -601,7 +677,15 @@ select:focus-visible {
   font-size: 12px;
   font-weight: 500;
   color: var(--ink-3);
-  transition: all 120ms ease;
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    transform 180ms var(--ease-spring);
+}
+
+.toggle-pill:active {
+  transform: scale(0.97);
 }
 
 .toggle-pill.on {
@@ -719,6 +803,11 @@ select:focus-visible {
 .speaker-chip {
   font-size: 12px;
   font-weight: 600;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  cursor: default;
 }
 
 .speaker-chip.system {
@@ -740,6 +829,83 @@ select:focus-visible {
   line-height: 1.6;
   color: var(--ink);
   user-select: text;
+}
+
+.speaker-edit,
+.segment-edit {
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.speaker-edit {
+  width: 108px;
+  padding: 2px 5px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.segment-edit {
+  width: 100%;
+  min-height: 64px;
+  padding: 7px 9px;
+  resize: vertical;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.list-filters {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 8px;
+}
+
+.list-filters select {
+  min-width: 0;
+  height: 26px;
+  padding: 0 22px 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font: 500 11px/1 inherit;
+}
+
+.readiness-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: 500 11.5px/1.3 inherit;
+  text-align: left;
+}
+
+.readiness-status span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+
+.readiness-status.ready span {
+  background: var(--ok);
+}
+.readiness-status.microphone,
+.readiness-status.model {
+  color: var(--warn);
+  cursor: pointer;
+}
+.readiness-status.microphone span,
+.readiness-status.model span {
+  background: var(--warn);
 }
 
 .rail-empty {
@@ -1001,7 +1167,9 @@ select:focus-visible {
   background: var(--accent);
   color: #fff;
   flex-shrink: 0;
-  transition: filter 120ms ease, transform 120ms ease;
+  transition:
+    filter 120ms ease,
+    transform 120ms ease;
 }
 
 .wf-play:hover {
@@ -1024,7 +1192,6 @@ select:focus-visible {
 .wf-time-total {
   color: var(--ink-3);
 }
-
 
 .wf-wave {
   position: relative;
@@ -1481,9 +1648,10 @@ select:focus-visible {
 
 .model-progress-bar {
   position: absolute;
-  inset: 0 auto 0 0;
+  inset: 0;
   background: var(--accent);
-  transition: width 200ms ease;
+  transform-origin: left center;
+  transition: transform 240ms var(--ease-spring);
 }
 
 .model-progress-text {
@@ -1533,7 +1701,11 @@ select:focus-visible {
   border: 1px dashed var(--border-strong);
   border-radius: 999px;
   padding: 3px 12px;
-  transition: all 120ms ease;
+  transition:
+    color 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease,
+    transform 180ms var(--ease-spring);
 }
 
 .template-pill:hover {
@@ -1565,12 +1737,27 @@ select:focus-visible {
   height: 0;
 }
 
-.notes-editor .tiptap h1 { font-size: 22px; margin: 14px 0 6px; }
-.notes-editor .tiptap h2 { font-size: 17px; margin: 14px 0 6px; }
-.notes-editor .tiptap h3 { font-size: 15px; margin: 12px 0 4px; font-weight: 650; }
-.notes-editor .tiptap p { margin-bottom: 6px; }
+.notes-editor .tiptap h1 {
+  font-size: 22px;
+  margin: 14px 0 6px;
+}
+.notes-editor .tiptap h2 {
+  font-size: 17px;
+  margin: 14px 0 6px;
+}
+.notes-editor .tiptap h3 {
+  font-size: 15px;
+  margin: 12px 0 4px;
+  font-weight: 650;
+}
+.notes-editor .tiptap p {
+  margin-bottom: 6px;
+}
 .notes-editor .tiptap ul,
-.notes-editor .tiptap ol { padding-left: 22px; margin-bottom: 8px; }
+.notes-editor .tiptap ol {
+  padding-left: 22px;
+  margin-bottom: 8px;
+}
 
 .notes-editor .tiptap ul[data-type='taskList'] {
   list-style: none;
@@ -1734,6 +1921,27 @@ select:focus-visible {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes detail-enter {
+  from {
+    opacity: 0.72;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation: none !important;
+    transition-duration: 0.01ms !important;
   }
 }
 

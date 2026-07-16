@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import type { Folder, Meeting, TranscriptSegment } from './types'
+import type { Folder, Meeting, MeetingContextAction, TranscriptSegment } from './types'
 import { MeetingCapture, type CaptureSources } from './lib/capture'
 import { defaultMeetingTitle } from './lib/format'
 import { Sidebar } from './components/Sidebar'
@@ -67,20 +67,21 @@ function App(): JSX.Element {
     })
   }
 
-  // First launch: if the mic has never been requested, trigger the real
-  // prompt from the renderer. askForMediaAccess in the main process does not
-  // reliably show the dialog or register the app in System Settings; a
-  // renderer getUserMedia does both. Only runs while status is undetermined,
-  // so it never nags after the user has answered once.
+  // First launch: use Electron's native macOS request. The packaged app has
+  // the hardened-runtime audio-input entitlement, so this creates the stable
+  // TCC entry that appears in System Settings.
   useEffect(() => {
     window.api.permissions.status().then(({ microphone }) => {
       if (microphone === 'not-determined' || microphone === 'unknown') {
-        navigator.mediaDevices
-          .getUserMedia({ audio: true })
-          .then((s) => s.getTracks().forEach((t) => t.stop()))
-          .catch(() => {})
+        void window.api.permissions.requestMic()
       }
     })
+  }, [])
+
+  useEffect(() => {
+    const openSettings = (): void => setSettingsOpen(true)
+    window.addEventListener('meeterz:open-settings', openSettings)
+    return () => window.removeEventListener('meeterz:open-settings', openSettings)
   }, [])
 
   useEffect(() => {
@@ -91,11 +92,16 @@ function App(): JSX.Element {
     const offLive = window.api.onLiveSegments(({ meetingId, segments }) => {
       if (recordingRef.current?.meetingId === meetingId) setLiveSegments(segments)
     })
+    const offRefresh = window.api.onRefresh(() => {
+      void refresh()
+      showToast('Undone')
+    })
     return () => {
       offUpdated()
       offLive()
+      offRefresh()
     }
-  }, [refresh])
+  }, [refresh, showToast])
 
   const visibleMeetings = useMemo(() => {
     if (selectedFolderId === 'trash') return deletedList
@@ -103,9 +109,16 @@ function App(): JSX.Element {
     return meetingsList.filter((m) => m.folder_id === selectedFolderId)
   }, [meetingsList, deletedList, selectedFolderId])
 
+  // Keep the master/detail view useful when the active scope changes without
+  // synchronizing derived selection through an extra render.
+  const effectiveSelectedMeetingId =
+    selectedMeetingId != null && visibleMeetings.some((meeting) => meeting.id === selectedMeetingId)
+      ? selectedMeetingId
+      : (visibleMeetings[0]?.id ?? null)
+
   const selectedMeeting =
-    meetingsList.find((m) => m.id === selectedMeetingId) ??
-    deletedList.find((m) => m.id === selectedMeetingId) ??
+    meetingsList.find((m) => m.id === effectiveSelectedMeetingId) ??
+    deletedList.find((m) => m.id === effectiveSelectedMeetingId) ??
     null
 
   const meetingCounts = useMemo(() => {
@@ -126,32 +139,41 @@ function App(): JSX.Element {
     return meeting
   }, [refresh, selectedFolderId])
 
-  const updateMeeting = async (id: number, fields: Partial<Meeting>): Promise<void> => {
+  const updateMeeting = useCallback(async (id: number, fields: Partial<Meeting>): Promise<void> => {
     const updated = await window.api.meetings.update(id, fields)
     setMeetingsList((prev) => prev.map((m) => (m.id === id ? updated : m)))
-  }
+  }, [])
 
-  const deleteMeeting = async (id: number): Promise<void> => {
-    await window.api.meetings.remove(id)
-    if (selectedMeetingId === id) setSelectedMeetingId(null)
-    await refresh()
-    showToast('Moved to Recently Deleted.')
-  }
+  const deleteMeeting = useCallback(
+    async (id: number): Promise<void> => {
+      await window.api.meetings.remove(id)
+      if (selectedMeetingId === id) setSelectedMeetingId(null)
+      await refresh()
+      showToast('Moved to Recently Deleted.')
+    },
+    [refresh, selectedMeetingId, showToast]
+  )
 
-  const restoreMeeting = async (id: number): Promise<void> => {
-    await window.api.meetings.restore(id)
-    await refresh()
-    setSelectedFolderId('all')
-    setSelectedMeetingId(id)
-    showToast('Meeting restored.')
-  }
+  const restoreMeeting = useCallback(
+    async (id: number): Promise<void> => {
+      await window.api.meetings.restore(id)
+      await refresh()
+      setSelectedFolderId('all')
+      setSelectedMeetingId(id)
+      showToast('Meeting restored.')
+    },
+    [refresh, showToast]
+  )
 
-  const deleteForever = async (id: number): Promise<void> => {
-    const done = await window.api.meetings.deleteForever(id)
-    if (!done) return
-    if (selectedMeetingId === id) setSelectedMeetingId(null)
-    await refresh()
-  }
+  const deleteForever = useCallback(
+    async (id: number): Promise<void> => {
+      const done = await window.api.meetings.deleteForever(id)
+      if (!done) return
+      if (selectedMeetingId === id) setSelectedMeetingId(null)
+      await refresh()
+    },
+    [refresh, selectedMeetingId]
+  )
 
   const emptyTrash = async (): Promise<void> => {
     if (await window.api.meetings.emptyTrash()) {
@@ -219,7 +241,7 @@ function App(): JSX.Element {
     })
   }, [newMeeting, startRecording, stopRecording])
 
-  const importTranscript = async (): Promise<void> => {
+  const importTranscript = useCallback(async (): Promise<void> => {
     try {
       const meeting = await window.api.importVtt()
       if (meeting) {
@@ -231,7 +253,72 @@ function App(): JSX.Element {
     } catch (err) {
       showToast(`Import failed. ${err instanceof Error ? err.message : String(err)}`, true)
     }
-  }
+  }, [refresh, showToast])
+
+  // Native macOS menu commands. Each subscription returns its own cleanup so
+  // menu actions never accumulate across React renders.
+  useEffect(() => {
+    const offNew = window.api.onNewMeeting(() => void newMeeting())
+    const offImport = window.api.onImportTranscript(() => void importTranscript())
+    const offSettings = window.api.onOpenSettings(() => setSettingsOpen(true))
+    const offSearch = window.api.onFocusSearch(() => {
+      document.querySelector<HTMLInputElement>('.list-search input')?.focus()
+    })
+    const offSidebar = window.api.onToggleSidebar(() => {
+      setSidebarCollapsed((collapsed) => {
+        localStorage.setItem('meeterz.sidebarCollapsed', collapsed ? '0' : '1')
+        return !collapsed
+      })
+    })
+    const offTranscript = window.api.onToggleTranscript(() => {
+      setRailCollapsed((collapsed) => {
+        localStorage.setItem('meeterz.railCollapsed', collapsed ? '0' : '1')
+        return !collapsed
+      })
+    })
+    return () => {
+      offNew()
+      offImport()
+      offSettings()
+      offSearch()
+      offSidebar()
+      offTranscript()
+    }
+  }, [importTranscript, newMeeting])
+
+  useEffect(() => {
+    return window.api.onMeetingContextAction((payload: MeetingContextAction) => {
+      const { meetingId, action, folderId } = payload
+      setSelectedMeetingId(meetingId)
+      if (action === 'rename') {
+        requestAnimationFrame(() => {
+          const title = document.querySelector<HTMLInputElement>('.detail-title')
+          title?.focus()
+          title?.select()
+        })
+      } else if (action === 'move') {
+        void updateMeeting(meetingId, { folder_id: folderId ?? null }).then(refresh)
+      } else if (action === 'export-markdown') {
+        void window.api.exportMeeting
+          .markdown(meetingId)
+          .then((done) => done && showToast('Exported Markdown.'))
+      } else if (action === 'export-pdf') {
+        void window.api.exportMeeting
+          .pdf(meetingId)
+          .then((done) => done && showToast('Exported PDF.'))
+      } else if (action === 'copy-markdown') {
+        void window.api.exportMeeting
+          .copyMarkdown(meetingId)
+          .then((done) => done && showToast('Copied as Markdown.'))
+      } else if (action === 'delete') {
+        void deleteMeeting(meetingId)
+      } else if (action === 'restore') {
+        void restoreMeeting(meetingId)
+      } else if (action === 'delete-forever') {
+        void deleteForever(meetingId)
+      }
+    })
+  }, [deleteForever, deleteMeeting, refresh, restoreMeeting, showToast, updateMeeting])
 
   return (
     <div className="app">
@@ -247,46 +334,54 @@ function App(): JSX.Element {
       </button>
 
       {!sidebarCollapsed && (
-      <Sidebar
-        folders={foldersList}
-        selectedFolderId={selectedFolderId}
-        meetingCounts={meetingCounts}
-        onSelectFolder={(id) => {
-          setSelectedFolderId(id)
-          setSelectedMeetingId(null)
-        }}
-        onCreateFolder={async (name) => {
-          await window.api.folders.create(name)
-          refresh()
-        }}
-        onRenameFolder={async (id, name) => {
-          await window.api.folders.rename(id, name)
-          refresh()
-        }}
-        onDeleteFolder={async (id) => {
-          const deleted = await window.api.folders.remove(id)
-          if (deleted && selectedFolderId === id) setSelectedFolderId('all')
-          refresh()
-        }}
-        onDropMeeting={async (meetingId, folderId) => {
-          await updateMeeting(meetingId, { folder_id: folderId })
-          refresh()
-        }}
-        onNewMeeting={newMeeting}
-        onImport={importTranscript}
-        onOpenSettings={() => setSettingsOpen(true)}
-        recording={recording !== null}
-      />
+        <Sidebar
+          folders={foldersList}
+          selectedFolderId={selectedFolderId}
+          meetingCounts={meetingCounts}
+          onSelectFolder={(id) => {
+            setSelectedFolderId(id)
+            setSelectedMeetingId(null)
+          }}
+          onCreateFolder={async (name) => {
+            await window.api.folders.create(name)
+            refresh()
+          }}
+          onRenameFolder={async (id, name) => {
+            await window.api.folders.rename(id, name)
+            refresh()
+          }}
+          onDeleteFolder={async (id) => {
+            const deleted = await window.api.folders.remove(id)
+            if (deleted && selectedFolderId === id) setSelectedFolderId('all')
+            refresh()
+          }}
+          onDropMeeting={async (meetingId, folderId) => {
+            await updateMeeting(meetingId, { folder_id: folderId })
+            refresh()
+          }}
+          onNewMeeting={newMeeting}
+          onImport={importTranscript}
+          onOpenSettings={() => setSettingsOpen(true)}
+          recording={recording !== null}
+        />
       )}
 
       <MeetingList
         meetings={visibleMeetings}
-        selectedId={selectedMeetingId}
+        selectedId={effectiveSelectedMeetingId}
         onSelect={setSelectedMeetingId}
+        onContextMenu={(id) => window.api.meetings.showContextMenu(id)}
         isTrash={selectedFolderId === 'trash'}
         onEmptyTrash={emptyTrash}
         query={listQuery}
         onQueryChange={setListQuery}
+        scopeLabel={
+          selectedFolderId === 'all'
+            ? 'All meetings'
+            : selectedFolderId === 'trash'
+              ? 'Recently deleted'
+              : (foldersList.find((folder) => folder.id === selectedFolderId)?.name ?? 'Folder')
+        }
       />
 
       {selectedMeeting ? (

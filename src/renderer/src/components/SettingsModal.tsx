@@ -27,23 +27,10 @@ export function SettingsModal({ onClose }: SettingsModalProps): JSX.Element {
     setMicStatus(p.microphone)
   }
 
-  // Triggers the real macOS mic prompt. Crucially this also REGISTERS Meeterz
-  // in System Settings › Microphone — an app only appears there once it has
-  // actually requested access. askForMediaAccess (main) prompts when the
-  // status is undetermined; a renderer getUserMedia is the belt-and-braces
-  // path that reliably registers the app even when already denied.
+  // Trigger the native macOS request using the signed app identity. The
+  // hardened-runtime audio-input entitlement makes the TCC entry persistent.
   const grantMic = async (): Promise<void> => {
-    try {
-      await window.api.permissions.requestMic()
-    } catch {
-      /* ignore */
-    }
-    try {
-      const s = await navigator.mediaDevices.getUserMedia({ audio: true })
-      s.getTracks().forEach((t) => t.stop())
-    } catch {
-      /* denied — the app is now listed so the user can toggle it on */
-    }
+    await window.api.permissions.requestMic()
     await refreshMic()
     // If still not granted, open the pane — Meeterz is now in the list.
     const p = await window.api.permissions.status()
@@ -83,10 +70,24 @@ export function SettingsModal({ onClose }: SettingsModalProps): JSX.Element {
     })
   }, [])
 
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [onClose])
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Settings</h2>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 id="settings-title">Settings</h2>
 
         {!whisperOk && (
           <div className="settings-warning">
@@ -98,8 +99,8 @@ export function SettingsModal({ onClose }: SettingsModalProps): JSX.Element {
         <div className="settings-section">
           <div className="settings-label">macOS permissions</div>
           <p className="settings-hint">
-            Recording needs two separate macOS permissions. If a meeting captures silence,
-            check them here.
+            Recording needs two separate macOS permissions. If a meeting captures silence, check
+            them here.
           </p>
 
           <div className="perm-row">
@@ -107,9 +108,14 @@ export function SettingsModal({ onClose }: SettingsModalProps): JSX.Element {
               <span className="perm-name">Microphone</span>
               <span className="perm-sub">For in-person / room audio</span>
             </div>
-            <PermBadge state={micStatus === 'granted' ? 'ok' : micStatus === 'denied' ? 'bad' : 'unknown'} />
+            <PermBadge
+              state={micStatus === 'granted' ? 'ok' : micStatus === 'denied' ? 'bad' : 'unknown'}
+            />
             {micStatus === 'granted' ? (
-              <button className="perm-btn" onClick={() => window.api.permissions.openPane('microphone')}>
+              <button
+                className="perm-btn"
+                onClick={() => window.api.permissions.openPane('microphone')}
+              >
                 Settings
               </button>
             ) : (
@@ -128,11 +134,18 @@ export function SettingsModal({ onClose }: SettingsModalProps): JSX.Element {
               state={sysAudio === 'working' ? 'ok' : sysAudio === 'failed' ? 'bad' : 'unknown'}
             />
             {sysAudio === 'failed' ? (
-              <button className="record-btn small" onClick={() => window.api.permissions.openPane('audio')}>
+              <button
+                className="record-btn small"
+                onClick={() => window.api.permissions.openPane('audio')}
+              >
                 Open Settings
               </button>
             ) : (
-              <button className="perm-btn" onClick={testSystemAudio} disabled={sysAudio === 'testing'}>
+              <button
+                className="perm-btn"
+                onClick={testSystemAudio}
+                disabled={sysAudio === 'testing'}
+              >
                 {sysAudio === 'testing' ? 'Testing…' : sysAudio === 'working' ? 'Re-test' : 'Test'}
               </button>
             )}
@@ -180,8 +193,8 @@ export function SettingsModal({ onClose }: SettingsModalProps): JSX.Element {
         <div className="settings-section">
           <div className="settings-label">Transcription model</div>
           <p className="settings-hint">
-            Multilingual models auto-detect the language every ~30 seconds, so meetings that
-            switch between Dutch, French and English are transcribed correctly.
+            Multilingual models auto-detect the language every ~30 seconds, so meetings that switch
+            between Dutch, French and English are transcribed correctly.
           </p>
           {models.map((m) => (
             <div key={m.file} className="model-row">
@@ -205,14 +218,19 @@ export function SettingsModal({ onClose }: SettingsModalProps): JSX.Element {
                 <span className="model-installed">Installed</span>
               ) : m.downloading ? (
                 <span className="model-progress">
-                  <span className="model-progress-bar" style={{ width: `${m.progress * 100}%` }} />
+                  <span
+                    className="model-progress-bar"
+                    style={{ transform: `scaleX(${Math.max(0, Math.min(1, m.progress))})` }}
+                  />
                   <span className="model-progress-text">{Math.round(m.progress * 100)}%</span>
                 </span>
               ) : (
                 <button
                   className="record-btn small"
                   onClick={() =>
-                    window.api.models.download(m.file).catch((e) => setError(String(e?.message ?? e)))
+                    window.api.models
+                      .download(m.file)
+                      .catch((e) => setError(String(e?.message ?? e)))
                   }
                 >
                   Download

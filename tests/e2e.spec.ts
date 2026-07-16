@@ -99,6 +99,24 @@ test('app boots with library layout', async () => {
   await page.screenshot({ path: 'tests/screenshots/01-empty-library.png' })
 })
 
+test('macOS menu exposes standard commands and shortcuts', async () => {
+  const menu = await app.evaluate(({ Menu }) => {
+    const root = Menu.getApplicationMenu()
+    return {
+      labels: root?.items.map((item) => item.label) ?? [],
+      newMeeting: root?.getMenuItemById('new-meeting')?.accelerator,
+      importTranscript: root?.getMenuItemById('import-transcript')?.accelerator,
+      settings: root?.getMenuItemById('settings')?.accelerator
+    }
+  })
+  expect(menu.labels).toEqual(
+    expect.arrayContaining(['Meeterz', 'File', 'Edit', 'Recording', 'View', 'Window', 'Help'])
+  )
+  expect(menu.newMeeting).toBe('CommandOrControl+N')
+  expect(menu.importTranscript).toBe('CommandOrControl+O')
+  expect(menu.settings).toBe('CommandOrControl+,')
+})
+
 test('folders: create, rename, select', async () => {
   await page.locator('.section-header .icon-btn').click()
   await page.locator('.folder-input').fill('Client Projects')
@@ -135,10 +153,48 @@ test('new meeting with notes persists (Tiptap)', async () => {
 
   // switch away and back — notes must persist
   await page.locator('.nav-row', { hasText: 'All Meetings' }).click()
-  await page.locator('.meeting-row', { hasText: 'Kickoff with Acme' }).click()
+  // Populated scopes automatically select their first visible meeting.
+  await expect(page.locator('.meeting-row', { hasText: 'Kickoff with Acme' })).toHaveAttribute(
+    'aria-current',
+    'true'
+  )
   await expect(page.locator('.notes-editor .tiptap')).toContainText(
     'Discussed scope. Next step: send proposal.'
   )
+})
+
+test('meeting list supports arrow-key selection', async () => {
+  await page.getByRole('button', { name: 'New Meeting' }).first().click()
+  await page.getByRole('button', { name: 'New Meeting' }).first().click()
+  await page.locator('.nav-row', { hasText: 'All Meetings' }).click()
+  const rows = page.locator('.meeting-row')
+  expect(await rows.count()).toBeGreaterThanOrEqual(2)
+  await rows.first().focus()
+  await rows.first().press('ArrowDown')
+  await expect(rows.nth(1)).toBeFocused()
+  await expect(rows.nth(1)).toHaveAttribute('aria-current', 'true')
+})
+
+test('meeting context actions reach the selected meeting', async () => {
+  await page.getByRole('button', { name: 'New Meeting' }).first().click()
+  const row = page.locator('.meeting-row').first()
+  const meetingId = Number(await row.getAttribute('data-meeting-id'))
+
+  await app.evaluate(
+    ({ BrowserWindow }, payload) => {
+      BrowserWindow.getAllWindows()[0].webContents.send('command:meeting-context-action', payload)
+    },
+    { meetingId, action: 'rename' }
+  )
+  await expect(page.locator('.detail-title')).toBeFocused()
+
+  await app.evaluate(
+    ({ BrowserWindow }, payload) => {
+      BrowserWindow.getAllWindows()[0].webContents.send('command:meeting-context-action', payload)
+    },
+    { meetingId, action: 'copy-markdown' }
+  )
+  await expect(page.locator('.toast')).toContainText('Copied as Markdown')
 })
 
 for (const [i, c] of CASES.entries()) {
@@ -162,7 +218,12 @@ for (const [i, c] of CASES.entries()) {
       await expect(page.locator('.wf-pin')).toHaveCount(1)
       await page.locator('.wf-pin').click()
       await expect
-        .poll(async () => page.locator('.player-bar audio').first().evaluate((el: HTMLAudioElement) => el.currentTime))
+        .poll(async () =>
+          page
+            .locator('.player-bar audio')
+            .first()
+            .evaluate((el: HTMLAudioElement) => el.currentTime)
+        )
         .toBeGreaterThan(0)
       await page.locator('.wf-play').click() // pause
       await page.locator('.rail-search input').press('Escape')
@@ -178,9 +239,15 @@ test('mixed-language meeting: Dutch and French in one recording', async () => {
   // Two languages in the same recording, separated by a natural pause
   // (6 s windows → language re-detected per window, like a Belgian meeting
   // switching between Dutch and French).
-  await say(['-v', 'Ellen', '-r', '170'], 'Goedemorgen allemaal, de vergadering begint over vijf minuten')
+  await say(
+    ['-v', 'Ellen', '-r', '170'],
+    'Goedemorgen allemaal, de vergadering begint over vijf minuten'
+  )
   await page.waitForTimeout(900)
-  await say(['-v', 'Amélie', '-r', '170'], 'Merci beaucoup, le rapport sera disponible vendredi matin')
+  await say(
+    ['-v', 'Amélie', '-r', '170'],
+    'Merci beaucoup, le rapport sera disponible vendredi matin'
+  )
   await page.waitForTimeout(1200)
 
   const transcript = await stopAndAwaitTranscript()
@@ -244,14 +311,20 @@ test('find-in-transcript: highlights, counts and cycles matches', async () => {
 })
 
 test('full-text search finds transcript content', async () => {
+  // Self-contained even when Playwright restarts the worker after a capture failure.
+  await page.locator('.nav-row', { hasText: 'Import transcript' }).click()
+  await expect(page.locator('.detail-title')).toHaveValue('teams-transcript', { timeout: 10_000 })
   await page.locator('.list-search input').fill('kwartaaloverzicht')
   // Only imported fixtures contain this word; the recordings must be filtered out.
   await expect(page.locator('.meeting-row').first()).toContainText('teams-transcript', {
     timeout: 5_000
   })
   await expect(page.locator('.meeting-row', { hasText: 'budget review' })).toHaveCount(0)
-  await page.locator('.list-search input').fill('')
-  await expect(page.locator('.meeting-row', { hasText: 'Kickoff' })).toBeVisible()
+  await expect(page.locator('.list-result-count')).toHaveText(/\d+ results?/, { timeout: 5_000 })
+  await expect(page.locator('.row-snippet mark').first()).toContainText(/kwartaaloverzicht/i)
+  await page.getByRole('button', { name: 'Clear meeting search' }).click()
+  await expect(page.locator('.list-search input')).toHaveValue('')
+  await expect(page.locator('.meeting-row', { hasText: 'teams-transcript' }).first()).toBeVisible()
 })
 
 test('copy meeting as Markdown', async () => {
@@ -282,7 +355,8 @@ test('theme setting forces dark mode from Settings', async () => {
   const bg = await page.locator('.detail').evaluate((el) => getComputedStyle(el).backgroundColor)
   expect(bg).toBe('rgb(28, 28, 30)')
   await page.locator('.theme-row .toggle-pill', { hasText: 'System' }).click()
-  await page.locator('.modal .record-btn', { hasText: 'Done' }).click()
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.modal')).toHaveCount(0)
 })
 
 test('delete → Recently Deleted → restore → delete forever', async () => {
@@ -343,7 +417,28 @@ test('dark mode renders with readable tokens', async () => {
   await page.emulateMedia({ colorScheme: null })
 })
 
+test('reduced motion disables decorative transitions', async () => {
+  await page.locator('.nav-row', { hasText: 'All Meetings' }).click()
+  await page.getByRole('button', { name: 'New Meeting' }).first().click()
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  const detailAnimation = await page
+    .locator('.detail-body')
+    .evaluate((el) => getComputedStyle(el).animationName)
+  const rowTransition = await page
+    .locator('.meeting-row')
+    .first()
+    .evaluate((el) => getComputedStyle(el).transitionDuration)
+  expect(detailAnimation).toBe('none')
+  expect(
+    Math.max(...rowTransition.split(',').map((value) => Number.parseFloat(value)))
+  ).toBeLessThan(0.001)
+  await page.emulateMedia({ reducedMotion: null })
+})
+
 test('narrow window stacks the transcript rail (responsive)', async () => {
+  if ((await page.locator('.detail-body').count()) === 0) {
+    await page.getByRole('button', { name: 'New Meeting' }).first().click()
+  }
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()[0].setSize(1000, 700)
   })

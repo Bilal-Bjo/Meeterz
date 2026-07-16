@@ -19,6 +19,7 @@ interface TranscriptRailProps {
   playTime: number
   isPlaying: boolean
   onSegmentClick: (seg: TranscriptSegment) => void
+  onSegmentsChange: (segments: TranscriptSegment[]) => void
   onRetry: () => void
 }
 
@@ -52,9 +53,15 @@ export function TranscriptRail({
   playTime,
   isPlaying,
   onSegmentClick,
+  onSegmentsChange,
   onRetry
 }: TranscriptRailProps): JSX.Element {
   const [copied, setCopied] = useState(false)
+  const [editing, setEditing] = useState<{
+    index: number
+    field: 'text' | 'speaker'
+    value: string
+  } | null>(null)
   const q = query.trim().toLowerCase()
 
   useEffect(() => {
@@ -75,6 +82,25 @@ export function TranscriptRail({
     navigator.clipboard.writeText(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
+  }
+
+  const commitEdit = (): void => {
+    if (!editing) return
+    const value = editing.value.trim()
+    if (!value) {
+      setEditing(null)
+      return
+    }
+    const original = segments[editing.index]
+    const next = segments.map((segment, index) => {
+      if (editing.field === 'text')
+        return index === editing.index ? { ...segment, text: value } : segment
+      return segment.speaker === original.speaker && segment.source === original.source
+        ? { ...segment, speaker: value }
+        : segment
+    })
+    onSegmentsChange(next)
+    setEditing(null)
   }
 
   return (
@@ -125,11 +151,20 @@ export function TranscriptRail({
 
       <div className="rail-scroll">
         {meeting.status === 'recording' && segments.length === 0 && (
-          <RailEmpty icon={<IconWave size={20} />} text="Recording… live transcript appears in ~15 seconds." />
+          <RailEmpty
+            icon={<IconWave size={20} />}
+            text="Recording… live transcript appears in ~15 seconds."
+          />
         )}
         {meeting.status === 'transcribing' && (
           <RailEmpty
-            icon={<span className="dots-pulse"><i /><i /><i /></span>}
+            icon={
+              <span className="dots-pulse">
+                <i />
+                <i />
+                <i />
+              </span>
+            }
             text="Transcribing on-device…"
           />
         )}
@@ -157,13 +192,62 @@ export function TranscriptRail({
             onClick={() => onSegmentClick(s)}
           >
             <div className="segment-head">
-              <span className={`speaker-chip ${speakerClass(s)}`}>{speakerName(s)}</span>
+              {editing?.index === i && editing.field === 'speaker' ? (
+                <input
+                  className="speaker-edit"
+                  autoFocus
+                  value={editing.value}
+                  aria-label="Speaker name"
+                  onChange={(event) => setEditing({ ...editing, value: event.target.value })}
+                  onBlur={commitEdit}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') commitEdit()
+                    if (event.key === 'Escape') setEditing(null)
+                  }}
+                />
+              ) : (
+                <button
+                  className={`speaker-chip ${speakerClass(s)}`}
+                  title="Double-click to rename this speaker"
+                  onDoubleClick={(event) => {
+                    event.stopPropagation()
+                    setEditing({ index: i, field: 'speaker', value: speakerName(s) })
+                  }}
+                >
+                  {speakerName(s)}
+                </button>
+              )}
               <span className="segment-time">{formatTimestamp(s.start)}</span>
               {s.lang && <span className="segment-lang">{s.lang}</span>}
             </div>
-            <p className="segment-text">
-              <Highlighted text={s.text} query={q} />
-            </p>
+            {editing?.index === i && editing.field === 'text' ? (
+              <textarea
+                className="segment-edit"
+                autoFocus
+                value={editing.value}
+                aria-label="Transcript text"
+                onChange={(event) => setEditing({ ...editing, value: event.target.value })}
+                onBlur={commitEdit}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault()
+                    commitEdit()
+                  }
+                  if (event.key === 'Escape') setEditing(null)
+                }}
+              />
+            ) : (
+              <p
+                className="segment-text"
+                title="Double-click to correct transcript"
+                onDoubleClick={(event) => {
+                  event.stopPropagation()
+                  setEditing({ index: i, field: 'text', value: s.text })
+                }}
+              >
+                <Highlighted text={s.text} query={q} />
+              </p>
+            )}
           </div>
         ))}
       </div>

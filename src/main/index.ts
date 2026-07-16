@@ -14,6 +14,7 @@ import {
   clipboard,
   nativeTheme
 } from 'electron'
+import type { MenuItemConstructorOptions } from 'electron'
 import { join } from 'path'
 import { readFileSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -42,6 +43,9 @@ import { getPeaks } from './peaks'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
+let undoAction: { label: string; run: () => void | Promise<void> } | null = null
+
+app.setName('Meeterz')
 
 // Test isolation: point userData (db + recordings) at a scratch directory.
 if (process.env.MEETERZ_USERDATA) {
@@ -54,6 +58,23 @@ protocol.registerSchemesAsPrivileged([
 
 function send(channel: string, payload: unknown): void {
   mainWindow?.webContents.send(channel, payload)
+}
+
+function registerUndo(label: string, run: () => void | Promise<void>): void {
+  undoAction = { label, run }
+  setupApplicationMenu()
+}
+
+async function performUndo(): Promise<void> {
+  const action = undoAction
+  if (!action) {
+    mainWindow?.webContents.undo()
+    return
+  }
+  undoAction = null
+  await action.run()
+  send('command:refresh', null)
+  setupApplicationMenu()
 }
 
 function createWindow(): void {
@@ -104,10 +125,6 @@ function setupAudioCapture(): void {
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
     callback(permission === 'media' || permission === 'display-capture')
   })
-
-  if (process.platform === 'darwin') {
-    systemPreferences.askForMediaAccess('microphone').catch(() => {})
-  }
 }
 
 function setupAudioProtocol(): void {
@@ -193,7 +210,8 @@ async function ensureMixedTracks(): Promise<void> {
     if (!m.audio_dir || m.status !== 'ready') continue
     try {
       const channels = JSON.parse(m.channels) as Channel[]
-      if (channels.length > 0) await mixMeeting(m.audio_dir, channels).then((ok) => ok && notifyMeetingUpdated(m.id))
+      if (channels.length > 0)
+        await mixMeeting(m.audio_dir, channels).then((ok) => ok && notifyMeetingUpdated(m.id))
     } catch {
       /* skip */
     }
@@ -224,6 +242,7 @@ function notifyMeetingUpdated(meetingId: number): void {
 function setRecordingIndicators(recording: boolean): void {
   if (process.platform === 'darwin') app.dock?.setBadge(recording ? '●' : '')
   rebuildTrayMenu()
+  setupApplicationMenu()
 }
 
 // Shared post-recording pipeline: transcribe (windowed, per-window language
@@ -253,7 +272,13 @@ function runTranscription(meetingId: number, dir: string, channels: Channel[]): 
 function registerIpc(): void {
   ipcMain.handle('folders:list', () => folders.list())
   ipcMain.handle('folders:create', (_e, name: string) => folders.create(name))
-  ipcMain.handle('folders:rename', (_e, id: number, name: string) => folders.rename(id, name))
+  ipcMain.handle('folders:rename', (_e, id: number, name: string) => {
+    const previous = folders.get(id)
+    folders.rename(id, name)
+    if (previous && previous.name !== name) {
+      registerUndo('Rename Folder', () => folders.rename(id, previous.name))
+    }
+  })
   ipcMain.handle('folders:remove', async (_e, id: number) => {
     const { response } = await dialog.showMessageBox(mainWindow!, {
       type: 'warning',
@@ -262,7 +287,12 @@ function registerIpc(): void {
       message: 'Delete this folder?',
       detail: 'Meetings inside it are kept and moved to All Meetings.'
     })
-    if (response === 0) folders.remove(id)
+    if (response === 0) {
+      const folder = folders.get(id)
+      const meetingIds = meetings.idsInFolder(id)
+      folders.remove(id)
+      if (folder) registerUndo('Delete Folder', () => folders.restore(folder, meetingIds))
+    }
     return response === 0
   })
 
@@ -272,20 +302,39 @@ function registerIpc(): void {
     meetings.create(title, folderId)
   )
   ipcMain.handle('meetings:update', (_e, id: number, fields: object) => {
+    const previous = meetings.get(id)
     meetings.update(id, fields)
+    const update = fields as Partial<Meeting>
+    if (
+      previous &&
+      Object.prototype.hasOwnProperty.call(update, 'folder_id') &&
+      previous.folder_id !== update.folder_id
+    ) {
+      registerUndo('Move Meeting', () => meetings.update(id, { folder_id: previous.folder_id }))
+    }
     return meetings.get(id)
   })
   // Reversible: meetings land in Recently Deleted and are purged after 30 days.
   ipcMain.handle('meetings:remove', (_e, id: number) => {
     meetings.softDelete(id)
+    registerUndo('Delete Meeting', () => meetings.restore(id))
     return true
   })
   ipcMain.handle('meetings:listDeleted', () => meetings.listDeleted())
-  ipcMain.handle('meetings:restore', (_e, id: number) => meetings.restore(id))
+  ipcMain.handle('meetings:restore', (_e, id: number) => {
+    meetings.restore(id)
+    registerUndo('Restore Meeting', () => meetings.softDelete(id))
+  })
   ipcMain.handle('meetings:deleteForever', async (_e, id: number) => {
     const m = meetings.get(id)
     if (!m) return true
-    if (!(await confirmDialog(`Permanently delete “${m.title}”?`, 'Notes, transcript and audio are erased. This cannot be undone.', 'Delete Forever'))) {
+    if (
+      !(await confirmDialog(
+        `Permanently delete “${m.title}”?`,
+        'Notes, transcript and audio are erased. This cannot be undone.',
+        'Delete Forever'
+      ))
+    ) {
       return false
     }
     await eraseMeeting(m)
@@ -294,13 +343,71 @@ function registerIpc(): void {
   ipcMain.handle('meetings:emptyTrash', async () => {
     const deleted = meetings.listDeleted()
     if (deleted.length === 0) return true
-    if (!(await confirmDialog(`Permanently delete ${deleted.length} meeting${deleted.length > 1 ? 's' : ''}?`, 'Everything in Recently Deleted is erased. This cannot be undone.', 'Delete Forever'))) {
+    if (
+      !(await confirmDialog(
+        `Permanently delete ${deleted.length} meeting${deleted.length > 1 ? 's' : ''}?`,
+        'Everything in Recently Deleted is erased. This cannot be undone.',
+        'Delete Forever'
+      ))
+    ) {
       return false
     }
     for (const m of deleted) await eraseMeeting(m)
     return true
   })
   ipcMain.handle('meetings:search', (_e, query: string) => meetings.search(query))
+  ipcMain.on('meetings:contextMenu', (event, meetingId: number) => {
+    const meeting = meetings.get(meetingId)
+    if (!meeting) return
+    const emit = (action: string, folderId?: number | null): void => {
+      event.sender.send('command:meeting-context-action', { meetingId, action, folderId })
+    }
+    const moveItems: MenuItemConstructorOptions[] = [
+      {
+        label: 'No Folder',
+        type: 'radio',
+        checked: meeting.folder_id == null,
+        click: () => emit('move', null)
+      },
+      { type: 'separator' },
+      ...folders.list().map<MenuItemConstructorOptions>((folder) => ({
+        label: folder.name,
+        type: 'radio',
+        checked: meeting.folder_id === folder.id,
+        click: () => emit('move', folder.id)
+      }))
+    ]
+    const activeItems: MenuItemConstructorOptions[] = [
+      { label: 'Open', click: () => emit('open') },
+      { label: 'Rename…', click: () => emit('rename') },
+      { type: 'separator' },
+      { label: 'Move to Folder', submenu: moveItems },
+      {
+        label: 'Export',
+        submenu: [
+          { label: 'Export Markdown…', click: () => emit('export-markdown') },
+          { label: 'Export PDF…', click: () => emit('export-pdf') },
+          { type: 'separator' },
+          { label: 'Copy as Markdown', click: () => emit('copy-markdown') }
+        ]
+      },
+      { type: 'separator' },
+      {
+        label: 'Move to Recently Deleted',
+        enabled: meeting.status !== 'recording',
+        click: () => emit('delete')
+      }
+    ]
+    const deletedItems: MenuItemConstructorOptions[] = [
+      { label: 'Open', click: () => emit('open') },
+      { type: 'separator' },
+      { label: 'Restore', click: () => emit('restore') },
+      { label: 'Delete Forever…', click: () => emit('delete-forever') }
+    ]
+    Menu.buildFromTemplate(meeting.deleted_at == null ? activeItems : deletedItems).popup({
+      window: BrowserWindow.fromWebContents(event.sender) ?? undefined
+    })
+  })
 
   ipcMain.handle('audio:peaks', (_e, meetingId: number, channel: Channel) => {
     const m = meetings.get(meetingId)
@@ -345,14 +452,12 @@ function registerIpc(): void {
         ? systemPreferences.getMediaAccessStatus('microphone')
         : 'granted'
   }))
-  ipcMain.handle('permissions:requestMic', () =>
-    process.platform === 'darwin'
-      ? systemPreferences.askForMediaAccess('microphone')
-      : Promise.resolve(true)
-  )
+  ipcMain.handle('permissions:requestMic', async () => {
+    if (process.platform !== 'darwin') return true
+    return systemPreferences.askForMediaAccess('microphone')
+  })
   ipcMain.handle('permissions:openPane', (_e, pane: 'microphone' | 'audio') => {
-    const anchor =
-      pane === 'microphone' ? 'Privacy_Microphone' : 'Privacy_ScreenCapture'
+    const anchor = pane === 'microphone' ? 'Privacy_Microphone' : 'Privacy_ScreenCapture'
     shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${anchor}`)
   })
 
@@ -428,9 +533,7 @@ function registerIpc(): void {
     downloadModel(file, (f, p) => send('models:progress', { file: f, progress: p }))
   )
   ipcMain.handle('models:setActive', (_e, file: string) => setActiveModel(file))
-  ipcMain.handle('settings:get', (_e, key: string, fallback: string) =>
-    settings.get(key, fallback)
-  )
+  ipcMain.handle('settings:get', (_e, key: string, fallback: string) => settings.get(key, fallback))
   ipcMain.handle('settings:set', (_e, key: string, value: string) => {
     settings.set(key, value)
     if (key === 'theme') applyTheme(value)
@@ -456,6 +559,118 @@ function rebuildTrayMenu(): void {
     ])
   )
   tray.setToolTip(recording ? 'Meeterz — recording' : 'Meeterz')
+}
+
+function setupApplicationMenu(): void {
+  const command = (name: string): void => send(`command:${name}`, null)
+  const template: MenuItemConstructorOptions[] = [
+    {
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        {
+          id: 'settings',
+          label: 'Settings…',
+          accelerator: 'CommandOrControl+,',
+          click: () => command('settings')
+        },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    },
+    {
+      label: 'File',
+      submenu: [
+        {
+          id: 'new-meeting',
+          label: 'New Meeting',
+          accelerator: 'CommandOrControl+N',
+          click: () => command('new-meeting')
+        },
+        {
+          id: 'import-transcript',
+          label: 'Import Transcript…',
+          accelerator: 'CommandOrControl+O',
+          click: () => command('import')
+        },
+        { type: 'separator' },
+        { role: 'close' }
+      ]
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        {
+          label: undoAction ? `Undo ${undoAction.label}` : 'Undo',
+          accelerator: 'CommandOrControl+Z',
+          click: () => void performUndo()
+        },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' }
+      ]
+    },
+    {
+      label: 'Recording',
+      submenu: [
+        {
+          label: isRecording() ? 'Stop Recording' : 'Start Recording',
+          accelerator: 'Alt+CommandOrControl+R',
+          click: () => {
+            mainWindow?.show()
+            send('command:toggle-record', null)
+          }
+        }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        {
+          label: 'Find in Meetings',
+          accelerator: 'CommandOrControl+F',
+          click: () => command('focus-search')
+        },
+        { type: 'separator' },
+        {
+          label: 'Toggle Sidebar',
+          accelerator: 'CommandOrControl+Control+S',
+          click: () => command('toggle-sidebar')
+        },
+        {
+          label: 'Toggle Transcript',
+          accelerator: 'CommandOrControl+Control+T',
+          click: () => command('toggle-transcript')
+        },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    {
+      label: 'Window',
+      submenu: [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }]
+    },
+    {
+      role: 'help',
+      submenu: [
+        {
+          label: 'Meeterz on GitHub',
+          click: () => shell.openExternal('https://github.com/Bilal-Bjo/Meeterz')
+        }
+      ]
+    }
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
 function setupTrayAndShortcut(): void {
@@ -491,6 +706,7 @@ app.whenReady().then(() => {
   registerIpc()
   setLiveListener((meetingId, segments) => send('live:segments', { meetingId, segments }))
   createWindow()
+  setupApplicationMenu()
   setupTrayAndShortcut()
   recoverStuckRecordings(runTranscription)
   purgeExpiredTrash()

@@ -74,9 +74,8 @@ function migrate(): void {
   // Earlier builds created meetings_fts as contentless (content=''), which
   // cannot be updated — rebuild it as a regular FTS table.
   const ftsSql = (
-    db
-      .prepare("SELECT sql FROM sqlite_master WHERE name = 'meetings_fts'")
-      .get() as { sql: string } | undefined
+    db.prepare("SELECT sql FROM sqlite_master WHERE name = 'meetings_fts'").get() as
+      { sql: string } | undefined
   )?.sql
   if (ftsSql?.includes("content=''")) {
     db.exec('DROP TABLE meetings_fts;')
@@ -108,19 +107,19 @@ function transcriptPlain(transcript: string | null): string {
 
 function notesPlain(notes: string): string {
   // Notes are Tiptap HTML; strip tags for indexing.
-  return notes.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+  return notes
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function reindex(id: number): void {
   const m = db.prepare('SELECT * FROM meetings WHERE id = ?').get(id) as Meeting | undefined
   db.prepare('DELETE FROM meetings_fts WHERE rowid = ?').run(id)
   if (m) {
-    db.prepare('INSERT INTO meetings_fts (rowid, title, notes, transcript) VALUES (?, ?, ?, ?)').run(
-      id,
-      m.title,
-      notesPlain(m.notes),
-      transcriptPlain(m.transcript)
-    )
+    db.prepare(
+      'INSERT INTO meetings_fts (rowid, title, notes, transcript) VALUES (?, ?, ?, ?)'
+    ).run(id, m.title, notesPlain(m.notes), transcriptPlain(m.transcript))
   }
 }
 
@@ -138,8 +137,7 @@ export function initDb(dbPath?: string): void {
 export const settings = {
   get(key: string, fallback: string): string {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
-      | { value: string }
-      | undefined
+      { value: string } | undefined
     return row?.value ?? fallback
   },
   set(key: string, value: string): void {
@@ -162,12 +160,32 @@ export const folders = {
   rename(id: number, name: string): void {
     db.prepare('UPDATE folders SET name = ? WHERE id = ?').run(name, id)
   },
+  get(id: number): Folder | undefined {
+    return db.prepare('SELECT * FROM folders WHERE id = ?').get(id) as Folder | undefined
+  },
+  restore(folder: Folder, meetingIds: number[]): void {
+    const restoreFolder = db.transaction(() => {
+      db.prepare('INSERT INTO folders (id, name, created_at) VALUES (?, ?, ?)').run(
+        folder.id,
+        folder.name,
+        folder.created_at
+      )
+      const move = db.prepare('UPDATE meetings SET folder_id = ? WHERE id = ?')
+      for (const meetingId of meetingIds) move.run(folder.id, meetingId)
+    })
+    restoreFolder()
+  },
   remove(id: number): void {
     db.prepare('DELETE FROM folders WHERE id = ?').run(id)
   }
 }
 
 export const meetings = {
+  idsInFolder(folderId: number): number[] {
+    return (
+      db.prepare('SELECT id FROM meetings WHERE folder_id = ?').all(folderId) as { id: number }[]
+    ).map(({ id }) => id)
+  },
   list(): Meeting[] {
     return db
       .prepare('SELECT * FROM meetings WHERE deleted_at IS NULL ORDER BY created_at DESC')
@@ -192,7 +210,11 @@ export const meetings = {
   get(id: number): Meeting | undefined {
     return db.prepare('SELECT * FROM meetings WHERE id = ?').get(id) as Meeting | undefined
   },
-  create(title: string, folderId: number | null, origin: 'recording' | 'import' = 'recording'): Meeting {
+  create(
+    title: string,
+    folderId: number | null,
+    origin: 'recording' | 'import' = 'recording'
+  ): Meeting {
     const info = db
       .prepare('INSERT INTO meetings (title, folder_id, created_at, origin) VALUES (?, ?, ?, ?)')
       .run(title, folderId, Date.now(), origin)

@@ -25,7 +25,8 @@ const api = {
     restore: (id: number) => ipcRenderer.invoke('meetings:restore', id),
     deleteForever: (id: number) => ipcRenderer.invoke('meetings:deleteForever', id),
     emptyTrash: () => ipcRenderer.invoke('meetings:emptyTrash'),
-    search: (query: string) => ipcRenderer.invoke('meetings:search', query)
+    search: (query: string) => ipcRenderer.invoke('meetings:search', query),
+    showContextMenu: (id: number) => ipcRenderer.send('meetings:contextMenu', id)
   },
   recording: {
     start: (meetingId: number) => ipcRenderer.invoke('recording:start', meetingId),
@@ -64,6 +65,15 @@ const api = {
   onMeetingUpdated: (cb: (meeting: unknown) => void) => on('meeting:updated', cb),
   onLiveSegments: (cb: (payload: unknown) => void) => on('live:segments', cb),
   onToggleRecord: (cb: () => void) => on('command:toggle-record', cb),
+  onNewMeeting: (cb: () => void) => on('command:new-meeting', cb),
+  onImportTranscript: (cb: () => void) => on('command:import', cb),
+  onOpenSettings: (cb: () => void) => on('command:settings', cb),
+  onFocusSearch: (cb: () => void) => on('command:focus-search', cb),
+  onToggleSidebar: (cb: () => void) => on('command:toggle-sidebar', cb),
+  onToggleTranscript: (cb: () => void) => on('command:toggle-transcript', cb),
+  onMeetingContextAction: (cb: (payload: unknown) => void) =>
+    on('command:meeting-context-action', cb),
+  onRefresh: (cb: () => void) => on('command:refresh', cb),
   onModelProgress: (cb: (payload: unknown) => void) => on('models:progress', cb)
 }
 
