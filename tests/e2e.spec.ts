@@ -282,6 +282,18 @@ test('imports a Teams .vtt transcript with speaker names', async () => {
   await page.screenshot({ path: 'tests/screenshots/08-imported-vtt.png' })
 })
 
+test('optional summary asks for a user-provided OpenAI key', async () => {
+  await page.locator('.nav-row', { hasText: 'Import transcript' }).click()
+  await expect(page.locator('.summary-empty')).toBeVisible({ timeout: 10_000 })
+  await expect(page.locator('.summary-empty')).toContainText('Optional')
+  await page.locator('.summary-generate').click()
+  await expect(page.locator('.modal')).toBeVisible()
+  await expect(page.locator('.modal')).toContainText('Optional meeting summaries')
+  await expect(page.getByLabel('OpenAI API key')).toBeVisible()
+  await expect(page.locator('.modal')).toContainText('only when you click Generate')
+  await page.getByRole('button', { name: 'Done' }).click()
+})
+
 test('find-in-transcript: highlights, counts and cycles matches', async () => {
   // Self-contained: import a fresh transcript to search within.
   await page.locator('.nav-row', { hasText: 'Import transcript' }).click()

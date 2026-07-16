@@ -12,7 +12,8 @@ import {
   nativeImage,
   globalShortcut,
   clipboard,
-  nativeTheme
+  nativeTheme,
+  safeStorage
 } from 'electron'
 import type { MenuItemConstructorOptions } from 'electron'
 import { join } from 'path'
@@ -538,6 +539,113 @@ function registerIpc(): void {
     settings.set(key, value)
     if (key === 'theme') applyTheme(value)
   })
+
+  const readOpenAiKey = (): string | null => {
+    const encrypted = settings.get('openai_api_key', '')
+    if (!encrypted || !safeStorage.isEncryptionAvailable()) return null
+    try {
+      return safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
+    } catch {
+      return null
+    }
+  }
+
+  ipcMain.handle('summaries:keyStatus', () => ({ configured: readOpenAiKey() != null }))
+  ipcMain.handle('summaries:setKey', (_e, key: string) => {
+    const normalized = key.trim()
+    if (!normalized.startsWith('sk-')) throw new Error('Enter a valid OpenAI API key.')
+    if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure key storage is unavailable.')
+    settings.set('openai_api_key', safeStorage.encryptString(normalized).toString('base64'))
+  })
+  ipcMain.handle('summaries:removeKey', () => settings.set('openai_api_key', ''))
+  ipcMain.handle('summaries:generate', async (_e, meetingId: number) => {
+    const meeting = meetings.get(meetingId)
+    if (!meeting?.transcript) throw new Error('This meeting has no transcript to summarize.')
+    const apiKey = readOpenAiKey()
+    if (!apiKey) throw new Error('Add an OpenAI API key in Settings first.')
+    const segments = JSON.parse(meeting.transcript) as Array<{
+      start: number
+      text: string
+      speaker?: string
+      source: string
+    }>
+    const transcript = segments
+      .map(
+        (segment) =>
+          `[${Math.round(segment.start)}s] ${segment.speaker ?? segment.source}: ${segment.text}`
+      )
+      .join('\n')
+      .slice(0, 180_000)
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gpt-5.4',
+        store: false,
+        max_output_tokens: 1800,
+        instructions:
+          'Summarize only facts supported by the transcript. Keep the overview concise. Preserve the transcript language. For every key point, decision, and action item, include the closest source timestamp in whole seconds. Use null when no timestamp, owner, or due date is supported. Never invent commitments, owners, dates, or outcomes.',
+        input: `Meeting title: ${meeting.title}\n\nTranscript:\n${transcript}`,
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'meeting_summary',
+            strict: true,
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                overview: { type: 'string' },
+                keyPoints: { type: 'array', items: summaryItemSchema() },
+                decisions: { type: 'array', items: summaryItemSchema() },
+                actionItems: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    properties: {
+                      text: { type: 'string' },
+                      timestamp: { type: ['number', 'null'] },
+                      owner: { type: ['string', 'null'] },
+                      due: { type: ['string', 'null'] }
+                    },
+                    required: ['text', 'timestamp', 'owner', 'due']
+                  }
+                }
+              },
+              required: ['overview', 'keyPoints', 'decisions', 'actionItems']
+            }
+          }
+        }
+      })
+    })
+    const payload = (await response.json()) as {
+      error?: { message?: string }
+      output?: Array<{
+        type: string
+        content?: Array<{ type: string; text?: string; refusal?: string }>
+      }>
+    }
+    if (!response.ok)
+      throw new Error(payload.error?.message ?? `OpenAI request failed (${response.status}).`)
+    const content = payload.output?.flatMap((item) => item.content ?? []) ?? []
+    const refusal = content.find((item) => item.type === 'refusal')?.refusal
+    if (refusal) throw new Error(refusal)
+    const text = content.find((item) => item.type === 'output_text')?.text
+    if (!text) throw new Error('OpenAI returned no summary.')
+    JSON.parse(text)
+    meetings.update(meetingId, { summary: text })
+    return meetings.get(meetingId)!
+  })
+}
+
+function summaryItemSchema(): object {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: { text: { type: 'string' }, timestamp: { type: ['number', 'null'] } },
+    required: ['text', 'timestamp']
+  }
 }
 
 function rebuildTrayMenu(): void {

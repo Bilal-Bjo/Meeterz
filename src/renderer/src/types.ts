@@ -24,6 +24,7 @@ export interface Meeting {
   duration_sec: number
   status: MeetingStatus
   transcript: string | null
+  summary: string | null
   audio_dir: string | null
   channels: string
   error_msg: string | null
@@ -60,6 +61,18 @@ export interface ModelStatus {
   active: boolean
   downloading: boolean
   progress: number
+}
+
+export interface MeetingSummaryItem {
+  text: string
+  timestamp: number | null
+}
+
+export interface MeetingSummary {
+  overview: string
+  keyPoints: MeetingSummaryItem[]
+  decisions: MeetingSummaryItem[]
+  actionItems: Array<MeetingSummaryItem & { owner: string | null; due: string | null }>
 }
 
 export interface MeeterzApi {
@@ -108,6 +121,12 @@ export interface MeeterzApi {
   settings: {
     get: (key: string, fallback: string) => Promise<string>
     set: (key: string, value: string) => Promise<void>
+  }
+  summaries: {
+    keyStatus: () => Promise<{ configured: boolean }>
+    setKey: (key: string) => Promise<void>
+    removeKey: () => Promise<void>
+    generate: (meetingId: number) => Promise<Meeting>
   }
   permissions: {
     status: () => Promise<{ microphone: string }>

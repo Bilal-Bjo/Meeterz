@@ -17,6 +17,9 @@ export function SettingsModal({ onClose }: SettingsModalProps): JSX.Element {
   const [live, setLive] = useState(true)
   const [theme, setTheme] = useState('system')
   const [error, setError] = useState<string | null>(null)
+  const [openAiKey, setOpenAiKey] = useState('')
+  const [openAiConfigured, setOpenAiConfigured] = useState(false)
+  const [savingKey, setSavingKey] = useState(false)
   const [micStatus, setMicStatus] = useState<string>('unknown')
   const [sysAudio, setSysAudio] = useState<'untested' | 'testing' | 'working' | 'failed'>(
     'untested'
@@ -62,6 +65,7 @@ export function SettingsModal({ onClose }: SettingsModalProps): JSX.Element {
     refreshMic()
     window.api.settings.get('live_transcript', '1').then((v) => setLive(v === '1'))
     window.api.settings.get('theme', 'system').then(setTheme)
+    window.api.summaries.keyStatus().then(({ configured }) => setOpenAiConfigured(configured))
     return window.api.onModelProgress(({ file, progress }) => {
       setModels((prev) =>
         prev.map((m) => (m.file === file ? { ...m, downloading: progress < 1, progress } : m))
@@ -188,6 +192,64 @@ export function SettingsModal({ onClose }: SettingsModalProps): JSX.Element {
             />
             <span>Show the transcript while the meeting is still running (~15 s delay)</span>
           </label>
+        </div>
+
+        <div className="settings-section">
+          <div className="settings-label-row">
+            <div className="settings-label">Optional meeting summaries</div>
+            <span className={`perm-badge ${openAiConfigured ? 'ok' : 'unknown'}`}>
+              {openAiConfigured ? 'Ready' : 'Off'}
+            </span>
+          </div>
+          <p className="settings-hint">
+            Bring your own OpenAI API key. A transcript is sent to OpenAI only when you click
+            Generate; responses are requested with storage disabled. Recording and transcription
+            remain fully local.
+          </p>
+          <div className="api-key-row">
+            <input
+              type="password"
+              value={openAiKey}
+              placeholder={openAiConfigured ? 'Key saved securely' : 'sk-…'}
+              aria-label="OpenAI API key"
+              autoComplete="off"
+              onChange={(event) => setOpenAiKey(event.target.value)}
+            />
+            <button
+              className="record-btn small"
+              disabled={!openAiKey.trim() || savingKey}
+              onClick={async () => {
+                setSavingKey(true)
+                setError(null)
+                try {
+                  await window.api.summaries.setKey(openAiKey)
+                  setOpenAiKey('')
+                  setOpenAiConfigured(true)
+                } catch (reason) {
+                  setError(reason instanceof Error ? reason.message : String(reason))
+                } finally {
+                  setSavingKey(false)
+                }
+              }}
+            >
+              {savingKey ? 'Saving…' : openAiConfigured ? 'Replace' : 'Save key'}
+            </button>
+            {openAiConfigured && (
+              <button
+                className="perm-btn"
+                onClick={async () => {
+                  await window.api.summaries.removeKey()
+                  setOpenAiConfigured(false)
+                  setOpenAiKey('')
+                }}
+              >
+                Remove
+              </button>
+            )}
+          </div>
+          <p className="settings-key-note">
+            Encrypted using macOS secure storage. Meeterz never displays the saved key.
+          </p>
         </div>
 
         <div className="settings-section">

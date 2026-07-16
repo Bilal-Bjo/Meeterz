@@ -26,6 +26,7 @@ export interface Meeting {
   duration_sec: number
   status: 'idle' | 'recording' | 'transcribing' | 'ready' | 'error'
   transcript: string | null
+  summary: string | null
   audio_dir: string | null
   channels: string
   error_msg: string | null
@@ -57,6 +58,7 @@ function migrate(): void {
       duration_sec REAL NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'idle',
       transcript TEXT,
+      summary TEXT,
       audio_dir TEXT,
       channels TEXT NOT NULL DEFAULT '[]',
       error_msg TEXT,
@@ -86,7 +88,8 @@ function migrate(): void {
     `error_msg TEXT`,
     `audio_format TEXT NOT NULL DEFAULT 'wav'`,
     `origin TEXT NOT NULL DEFAULT 'recording'`,
-    `deleted_at INTEGER`
+    `deleted_at INTEGER`,
+    `summary TEXT`
   ]) {
     try {
       db.exec(`ALTER TABLE meetings ADD COLUMN ${col}`)
@@ -230,6 +233,7 @@ export const meetings = {
       'duration_sec',
       'status',
       'transcript',
+      'summary',
       'audio_dir',
       'channels',
       'error_msg',

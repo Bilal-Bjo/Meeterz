@@ -57,6 +57,12 @@ const api = {
     get: (key: string, fallback: string) => ipcRenderer.invoke('settings:get', key, fallback),
     set: (key: string, value: string) => ipcRenderer.invoke('settings:set', key, value)
   },
+  summaries: {
+    keyStatus: () => ipcRenderer.invoke('summaries:keyStatus'),
+    setKey: (key: string) => ipcRenderer.invoke('summaries:setKey', key),
+    removeKey: () => ipcRenderer.invoke('summaries:removeKey'),
+    generate: (meetingId: number) => ipcRenderer.invoke('summaries:generate', meetingId)
+  },
   permissions: {
     status: () => ipcRenderer.invoke('permissions:status'),
     requestMic: () => ipcRenderer.invoke('permissions:requestMic'),

@@ -6,6 +6,7 @@ import { formatDuration, formatTimestamp } from '../lib/format'
 import { TranscriptRail } from './TranscriptRail'
 import { PlayerBar, type SeekRequest, type TimelinePin } from './PlayerBar'
 import { NotesEditor } from './NotesEditor'
+import { SummaryCard } from './SummaryCard'
 import {
   IconExport,
   IconMic,
@@ -270,6 +271,14 @@ export function MeetingDetail({
           </div>
 
           {canRecord && <StartRecordingCard onStart={onStartRecording} />}
+
+          <SummaryCard
+            meeting={meeting}
+            canSeek={hasAudio}
+            onSeek={seekTo}
+            onGenerated={(summary) => onUpdate({ summary })}
+            onToast={onToast}
+          />
 
           <NotesEditor
             meetingId={meeting.id}
